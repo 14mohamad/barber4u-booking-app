@@ -1,4 +1,4 @@
-package com.example.barber4u;
+package com.example.barber4u.common;
 
 import android.os.Bundle;
 import android.view.LayoutInflater;
@@ -9,9 +9,13 @@ import androidx.annotation.NonNull;
 import androidx.annotation.Nullable;
 import androidx.fragment.app.Fragment;
 
-public class BookFragment extends Fragment {
+import com.example.barber4u.R;
 
-    public BookFragment() {}
+public class MessagesFragment extends Fragment {
+
+    public MessagesFragment() {
+        // קונסטרקטור ריק חובה
+    }
 
     @Nullable
     @Override
@@ -20,6 +24,6 @@ public class BookFragment extends Fragment {
             @Nullable ViewGroup container,
             @Nullable Bundle savedInstanceState
     ) {
-        return inflater.inflate(R.layout.fragment_book, container, false);
+        return inflater.inflate(R.layout.fragment_messages, container, false);
     }
 }

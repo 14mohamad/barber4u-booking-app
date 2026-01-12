@@ -1,0 +1,74 @@
+<?xml version="1.0" encoding="utf-8"?>
+<ScrollView xmlns:android="http://schemas.android.com/apk/res/android"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:padding="16dp">
+
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:orientation="vertical">
+
+        <TextView
+            android:id="@+id/tvAdminTitle"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="Admin Home"
+            android:textSize="22sp"
+            android:textStyle="bold"/>
+
+        <TextView
+            android:id="@+id/tvAdminSub"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="Quick overview"
+            android:textColor="#666666"
+            android:layout_marginTop="6dp"/>
+
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:orientation="vertical"
+            android:background="#F5F5F5"
+            android:padding="12dp"
+            android:layout_marginTop="16dp">
+
+            <TextView
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="Stats"
+                android:textStyle="bold"
+                android:textSize="16sp"/>
+
+            <TextView
+                android:id="@+id/tvStatBranches"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="Branches: -"
+                android:layout_marginTop="10dp"/>
+
+            <TextView
+                android:id="@+id/tvStatBarbers"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="Barbers: -"
+                android:layout_marginTop="6dp"/>
+
+            <TextView
+                android:id="@+id/tvStatUsers"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="Users: -"
+                android:layout_marginTop="6dp"/>
+
+            <TextView
+                android:id="@+id/tvStatPending"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="Pending appointments: -"
+                android:layout_marginTop="6dp"/>
+
+        </LinearLayout>
+
+    </LinearLayout>
+</ScrollView>

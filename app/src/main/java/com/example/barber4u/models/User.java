@@ -1,4 +1,4 @@
-package com.example.barber4u;
+package com.example.barber4u.models;
 
 import androidx.annotation.NonNull;
 

@@ -1,0 +1,454 @@
+package com.example.barber4u.customer;
+
+import android.app.DatePickerDialog;
+import android.app.TimePickerDialog;
+import android.os.Bundle;
+import android.text.TextUtils;
+import android.view.LayoutInflater;
+import android.view.View;
+import android.view.ViewGroup;
+import android.widget.ArrayAdapter;
+import android.widget.Button;
+import android.widget.EditText;
+import android.widget.ProgressBar;
+import android.widget.Spinner;
+import android.widget.TimePicker;
+import android.widget.Toast;
+
+import androidx.annotation.NonNull;
+import androidx.annotation.Nullable;
+import androidx.fragment.app.Fragment;
+import androidx.recyclerview.widget.LinearLayoutManager;
+import androidx.recyclerview.widget.RecyclerView;
+
+import com.example.barber4u.R;
+import com.example.barber4u.adapters.GalleryAdapter;
+import com.example.barber4u.models.Barber;
+import com.example.barber4u.models.Branch;
+import com.example.barber4u.models.GalleryItem;
+import com.google.firebase.Timestamp;
+import com.google.firebase.auth.FirebaseAuth;
+import com.google.firebase.auth.FirebaseUser;
+import com.google.firebase.firestore.FirebaseFirestore;
+import com.google.firebase.firestore.QueryDocumentSnapshot;
+
+import java.util.ArrayList;
+import java.util.Calendar;
+import java.util.Collections;
+import java.util.Comparator;
+import java.util.HashMap;
+import java.util.List;
+import java.util.Locale;
+import java.util.Map;
+
+public class BookFragment extends Fragment {
+
+    private Spinner spBranch, spBarber;
+    private EditText etDate, etTime, etNotes;
+    private Button btnBook;
+    private ProgressBar progressBook;
+
+    // Gallery
+    private RecyclerView rvGallery;
+    private GalleryAdapter galleryAdapter;
+    private final List<GalleryItem> galleryItems = new ArrayList<>();
+    private GalleryItem selectedGalleryItem = null;
+
+    private FirebaseAuth auth;
+    private FirebaseFirestore db;
+
+    private final List<Branch> branchList = new ArrayList<>();
+    private final List<Barber> barberList = new ArrayList<>();
+    private ArrayAdapter<Branch> branchAdapter;
+    private ArrayAdapter<Barber> barberAdapter;
+
+    private String lastLoadedBranchId = null;
+    private String lastLoadedBarberId = null;
+
+    public BookFragment() {}
+
+    @Nullable
+    @Override
+    public View onCreateView(
+            @NonNull LayoutInflater inflater,
+            @Nullable ViewGroup container,
+            @Nullable Bundle savedInstanceState
+    ) {
+        return inflater.inflate(R.layout.fragment_book, container, false);
+    }
+
+    @Override
+    public void onViewCreated(@NonNull View view, @Nullable Bundle savedInstanceState) {
+        super.onViewCreated(view, savedInstanceState);
+
+        auth = FirebaseAuth.getInstance();
+        db = FirebaseFirestore.getInstance();
+
+        spBranch = view.findViewById(R.id.spBranch);
+        spBarber = view.findViewById(R.id.spBarber);
+        etDate = view.findViewById(R.id.etDate);
+        etTime = view.findViewById(R.id.etTime);
+        etNotes = view.findViewById(R.id.etNotes);
+        btnBook = view.findViewById(R.id.btnBook);
+        progressBook = view.findViewById(R.id.progressBook);
+
+        rvGallery = view.findViewById(R.id.rvGallery);
+
+        setupAdapters();
+        setupPickers();
+        setupGallery();
+        setupButton();
+        loadBranches();
+    }
+
+    private void setupAdapters() {
+        branchAdapter = new ArrayAdapter<>(
+                requireContext(),
+                android.R.layout.simple_spinner_item,
+                branchList
+        );
+        branchAdapter.setDropDownViewResource(android.R.layout.simple_spinner_dropdown_item);
+        spBranch.setAdapter(branchAdapter);
+
+        barberAdapter = new ArrayAdapter<>(
+                requireContext(),
+                android.R.layout.simple_spinner_item,
+                barberList
+        );
+        barberAdapter.setDropDownViewResource(android.R.layout.simple_spinner_dropdown_item);
+        spBarber.setAdapter(barberAdapter);
+
+        spBranch.setOnItemSelectedListener(new android.widget.AdapterView.OnItemSelectedListener() {
+            @Override
+            public void onItemSelected(android.widget.AdapterView<?> parent, View view, int position, long id) {
+                if (position < 0 || position >= branchList.size()) return;
+
+                Branch selected = branchList.get(position);
+                String branchId = selected.getId();
+                if (branchId == null) return;
+
+                if (branchId.equals(lastLoadedBranchId)) return;
+                lastLoadedBranchId = branchId;
+
+                // ניקוי ספרים + גלריה בעת החלפת סניף
+                barberList.clear();
+                barberAdapter.notifyDataSetChanged();
+                lastLoadedBarberId = null;
+
+                clearGallery();
+
+                loadBarbersForBranch(branchId);
+            }
+
+            @Override
+            public void onNothingSelected(android.widget.AdapterView<?> parent) {}
+        });
+
+        spBarber.setOnItemSelectedListener(new android.widget.AdapterView.OnItemSelectedListener() {
+            @Override
+            public void onItemSelected(android.widget.AdapterView<?> parent, View view, int position, long id) {
+                if (position < 0 || position >= barberList.size()) return;
+
+                Barber barber = barberList.get(position);
+                String barberId = barber.getId();
+                if (barberId == null) return;
+
+                if (barberId.equals(lastLoadedBarberId)) return;
+                lastLoadedBarberId = barberId;
+
+                clearGallery();
+
+                Branch branch = (Branch) spBranch.getSelectedItem();
+                if (branch == null || branch.getId() == null) return;
+
+                loadGalleryForBarber(branch.getId(), barberId);
+            }
+
+            @Override
+            public void onNothingSelected(android.widget.AdapterView<?> parent) {}
+        });
+    }
+
+    private void setupGallery() {
+        rvGallery.setLayoutManager(new LinearLayoutManager(requireContext(), LinearLayoutManager.HORIZONTAL, false));
+        galleryAdapter = new GalleryAdapter(item -> {
+            selectedGalleryItem = item; // יכול להיות null אם לא בחרו
+        });
+        rvGallery.setAdapter(galleryAdapter);
+        clearGallery();
+    }
+
+    private void clearGallery() {
+        galleryItems.clear();
+        if (galleryAdapter != null) {
+            galleryAdapter.setItems(galleryItems);
+            galleryAdapter.clearSelection();
+        }
+        selectedGalleryItem = null;
+    }
+
+    private void loadBranches() {
+        setLoading(true);
+
+        branchList.clear();
+        barberList.clear();
+        branchAdapter.notifyDataSetChanged();
+        barberAdapter.notifyDataSetChanged();
+        lastLoadedBranchId = null;
+        lastLoadedBarberId = null;
+
+        clearGallery();
+
+        // ✅ בלי orderBy כדי לא להיתקע על אינדקס/שדה חסר
+        db.collection("branches")
+                .whereEqualTo("active", true)
+                .get()
+                .addOnSuccessListener(snap -> {
+                    for (QueryDocumentSnapshot doc : snap) {
+                        Branch b = doc.toObject(Branch.class);
+                        b.setId(doc.getId()); // docId = branch1/branch2...
+                        branchList.add(b);
+                    }
+
+                    // מיון מקומי לפי name (אם קיים), אחרת לפי id
+                    Collections.sort(branchList, (a, b) -> {
+                        String an = a.getName() == null ? "" : a.getName();
+                        String bn = b.getName() == null ? "" : b.getName();
+                        if (!an.isEmpty() || !bn.isEmpty()) return an.compareToIgnoreCase(bn);
+                        String ai = a.getId() == null ? "" : a.getId();
+                        String bi = b.getId() == null ? "" : b.getId();
+                        return ai.compareToIgnoreCase(bi);
+                    });
+
+                    branchAdapter.notifyDataSetChanged();
+                    setLoading(false);
+
+                    if (branchList.isEmpty()) {
+                        Toast.makeText(requireContext(), "אין סניפים זמינים", Toast.LENGTH_LONG).show();
+                    }
+                })
+                .addOnFailureListener(e -> {
+                    setLoading(false);
+                    Toast.makeText(requireContext(),
+                            "שגיאה בטעינת סניפים: " + e.getMessage(),
+                            Toast.LENGTH_LONG).show();
+                });
+    }
+
+    private void loadBarbersForBranch(String branchId) {
+        setLoading(true);
+
+        db.collection("barbers")
+                .whereArrayContains("branchIds", branchId)
+                .whereEqualTo("active", true)
+                .get()
+                .addOnSuccessListener(snap -> {
+                    barberList.clear();
+
+                    for (QueryDocumentSnapshot doc : snap) {
+                        Barber barber = doc.toObject(Barber.class);
+                        barber.setId(doc.getId()); // docId = UID
+                        barberList.add(barber);
+                    }
+
+                    // מיון מקומי לפי שם
+                    Collections.sort(barberList, Comparator.comparing(b -> {
+                        String n = b.getName();
+                        return n == null ? "" : n.toLowerCase(Locale.ROOT);
+                    }));
+
+                    barberAdapter.notifyDataSetChanged();
+                    setLoading(false);
+
+                    if (barberList.isEmpty()) {
+                        Toast.makeText(requireContext(), "אין ספרים בסניף הזה", Toast.LENGTH_LONG).show();
+                    }
+                })
+                .addOnFailureListener(e -> {
+                    setLoading(false);
+                    Toast.makeText(requireContext(),
+                            "שגיאה בטעינת ספרים: " + e.getMessage(),
+                            Toast.LENGTH_LONG).show();
+                });
+    }
+
+    private void loadGalleryForBarber(String branchId, String barberId) {
+        setLoading(true);
+
+        db.collection("gallery_items")
+                .whereEqualTo("active", true)
+                .whereEqualTo("branchId", branchId)
+                .whereEqualTo("barberId", barberId)
+                .get()
+                .addOnSuccessListener(snap -> {
+                    galleryItems.clear();
+
+                    for (QueryDocumentSnapshot doc : snap) {
+                        GalleryItem item = doc.toObject(GalleryItem.class);
+                        item.setId(doc.getId());
+                        galleryItems.add(item);
+                    }
+
+                    // מיון לפי title
+                    Collections.sort(galleryItems, Comparator.comparing(g -> {
+                        String t = g.getTitle();
+                        return t == null ? "" : t.toLowerCase(Locale.ROOT);
+                    }));
+
+                    galleryAdapter.setItems(galleryItems);
+                    setLoading(false);
+
+                    // אם אין תמונות - זה עדיין בסדר (בחירה אופציונלית)
+                })
+                .addOnFailureListener(e -> {
+                    setLoading(false);
+                    Toast.makeText(requireContext(),
+                            "שגיאה בטעינת גלריה: " + e.getMessage(),
+                            Toast.LENGTH_LONG).show();
+                });
+    }
+
+    private void setupPickers() {
+        etDate.setOnClickListener(v -> openDatePicker());
+        etTime.setOnClickListener(v -> openTimePicker());
+    }
+
+    private void openDatePicker() {
+        Calendar c = Calendar.getInstance();
+        int year = c.get(Calendar.YEAR);
+        int month = c.get(Calendar.MONTH);
+        int day = c.get(Calendar.DAY_OF_MONTH);
+
+        DatePickerDialog dialog = new DatePickerDialog(
+                requireContext(),
+                (datePicker, y, m, d) -> {
+                    String text = String.format(Locale.getDefault(), "%02d/%02d/%04d", d, (m + 1), y);
+                    etDate.setText(text);
+                },
+                year, month, day
+        );
+        dialog.show();
+    }
+
+    private void openTimePicker() {
+        Calendar c = Calendar.getInstance();
+        int hour = c.get(Calendar.HOUR_OF_DAY);
+        int minute = c.get(Calendar.MINUTE);
+
+        TimePickerDialog dialog = new TimePickerDialog(
+                requireContext(),
+                (TimePicker timePicker, int h, int m) -> {
+                    String text = String.format(Locale.getDefault(), "%02d:%02d", h, m);
+                    etTime.setText(text);
+                },
+                hour, minute, true
+        );
+        dialog.show();
+    }
+
+    private void setupButton() {
+        btnBook.setOnClickListener(v -> createAppointment());
+    }
+
+    private void setLoading(boolean isLoading) {
+        progressBook.setVisibility(isLoading ? View.VISIBLE : View.GONE);
+        btnBook.setEnabled(!isLoading);
+        spBranch.setEnabled(!isLoading);
+        spBarber.setEnabled(!isLoading);
+        rvGallery.setEnabled(!isLoading);
+    }
+
+    private void createAppointment() {
+        FirebaseUser user = auth.getCurrentUser();
+        if (user == null) {
+            Toast.makeText(requireContext(), "צריך להתחבר כדי להזמין תור", Toast.LENGTH_SHORT).show();
+            return;
+        }
+
+        if (branchList.isEmpty()) {
+            Toast.makeText(requireContext(), "אין סניפים זמינים", Toast.LENGTH_SHORT).show();
+            return;
+        }
+
+        if (barberList.isEmpty()) {
+            Toast.makeText(requireContext(), "אין ספרים בסניף הזה", Toast.LENGTH_SHORT).show();
+            return;
+        }
+
+        Branch branch = (Branch) spBranch.getSelectedItem();
+        Barber barber = (Barber) spBarber.getSelectedItem();
+
+        if (branch == null || barber == null) {
+            Toast.makeText(requireContext(), "בחר/י סניף וספר", Toast.LENGTH_SHORT).show();
+            return;
+        }
+
+        String date = etDate.getText().toString().trim();
+        String time = etTime.getText().toString().trim();
+        String notes = etNotes.getText().toString().trim();
+
+        if (TextUtils.isEmpty(date)) {
+            etDate.setError("חובה");
+            etDate.requestFocus();
+            return;
+        }
+
+        if (TextUtils.isEmpty(time)) {
+            etTime.setError("חובה");
+            etTime.requestFocus();
+            return;
+        }
+
+        setLoading(true);
+
+        String userId = user.getUid();
+        String userEmail = user.getEmail();
+
+        Map<String, Object> data = new HashMap<>();
+        data.put("userId", userId);
+        data.put("userEmail", userEmail);
+
+        data.put("branchId", branch.getId());
+        data.put("branchName", branch.getName());
+
+        data.put("barberId", barber.getId());
+        data.put("barberName", barber.getName());
+
+        data.put("date", date);
+        data.put("time", time);
+        data.put("notes", notes);
+
+        // ✅ תמונה אופציונלית (אם לא בחרו - לא שולחים)
+        if (selectedGalleryItem != null) {
+            data.put("galleryItemId", selectedGalleryItem.getId());
+            data.put("galleryTitle", selectedGalleryItem.getTitle());
+            data.put("galleryImageUrl", selectedGalleryItem.getImageUrl());
+        }
+
+        data.put("status", "PENDING");
+        data.put("createdAt", Timestamp.now());
+        data.put("updatedAt", Timestamp.now());
+
+
+        db.collection("appointments")
+                .add(data)
+                .addOnSuccessListener(docRef -> {
+                    setLoading(false);
+                    Toast.makeText(requireContext(), "הבקשה נשלחה", Toast.LENGTH_LONG).show();
+
+                    etNotes.setText("");
+                    etTime.setText("");
+                    etDate.setText("");
+
+                    // לא חובה, אבל נוח: לנקות בחירת תמונה לאחר שליחה
+                    if (galleryAdapter != null) galleryAdapter.clearSelection();
+                    selectedGalleryItem = null;
+                })
+                .addOnFailureListener(e -> {
+                    setLoading(false);
+                    Toast.makeText(requireContext(),
+                            "שגיאה ביצירת תור: " + e.getMessage(),
+                            Toast.LENGTH_LONG).show();
+                });
+    }
+}

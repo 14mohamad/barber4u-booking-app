@@ -1,4 +1,4 @@
-package com.example.barber4u;
+package com.example.barber4u.auth;
 
 import androidx.annotation.NonNull;
 import androidx.appcompat.app.AppCompatActivity;
@@ -13,6 +13,8 @@ import android.widget.Toast;
 
 import android.content.Intent;
 
+import com.example.barber4u.R;
+import com.example.barber4u.models.User;
 import com.google.android.gms.tasks.OnCompleteListener;
 import com.google.android.gms.tasks.Task;
 import com.google.firebase.auth.AuthResult;
