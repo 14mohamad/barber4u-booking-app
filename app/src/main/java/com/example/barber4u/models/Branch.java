@@ -28,6 +28,12 @@ public class Branch {
     public boolean isActive() { return active; }
 
     public GeoPoint getLocation() { return location; }
+    public double getLat(){
+        return location.getLatitude();
+    }
+    public double getLng(){
+        return location.getLongitude();
+    }
     public void setLocation(GeoPoint location) { this.location = location; }
 
     @Override
@@ -35,4 +41,5 @@ public class Branch {
         // מה שמופיע ב-Spinner
         return name + " (" + getBranchId() + ")";
     }
+
 }

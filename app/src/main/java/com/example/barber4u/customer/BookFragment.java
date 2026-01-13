@@ -12,6 +12,7 @@ import android.widget.Button;
 import android.widget.EditText;
 import android.widget.ProgressBar;
 import android.widget.Spinner;
+import android.widget.TextView;
 import android.widget.TimePicker;
 import android.widget.Toast;
 
@@ -24,8 +25,8 @@ import androidx.recyclerview.widget.RecyclerView;
 import com.example.barber4u.R;
 import com.example.barber4u.adapters.GalleryAdapter;
 import com.example.barber4u.models.Barber;
-import com.example.barber4u.models.Branch;
 import com.example.barber4u.models.GalleryItem;
+import com.google.android.material.button.MaterialButton;
 import com.google.firebase.Timestamp;
 import com.google.firebase.auth.FirebaseAuth;
 import com.google.firebase.auth.FirebaseUser;
@@ -43,7 +44,11 @@ import java.util.Map;
 
 public class BookFragment extends Fragment {
 
-    private Spinner spBranch, spBarber;
+    // UI
+    private TextView tvSelectedBranch;
+    private MaterialButton btnChooseBranch;
+
+    private Spinner spBarber;
     private EditText etDate, etTime, etNotes;
     private Button btnBook;
     private ProgressBar progressBook;
@@ -54,16 +59,18 @@ public class BookFragment extends Fragment {
     private final List<GalleryItem> galleryItems = new ArrayList<>();
     private GalleryItem selectedGalleryItem = null;
 
+    // Firebase
     private FirebaseAuth auth;
     private FirebaseFirestore db;
 
-    private final List<Branch> branchList = new ArrayList<>();
+    // Barbers
     private final List<Barber> barberList = new ArrayList<>();
-    private ArrayAdapter<Branch> branchAdapter;
     private ArrayAdapter<Barber> barberAdapter;
-
-    private String lastLoadedBranchId = null;
     private String lastLoadedBarberId = null;
+
+    // Selected branch from map
+    private String selectedBranchId = null;
+    private String selectedBranchName = null;
 
     public BookFragment() {}
 
@@ -84,7 +91,10 @@ public class BookFragment extends Fragment {
         auth = FirebaseAuth.getInstance();
         db = FirebaseFirestore.getInstance();
 
-        spBranch = view.findViewById(R.id.spBranch);
+        // Bind UI (matches the rewritten fragment_book.xml)
+        tvSelectedBranch = view.findViewById(R.id.tvSelectedBranch);
+        btnChooseBranch = view.findViewById(R.id.btnChooseBranch);
+
         spBarber = view.findViewById(R.id.spBarber);
         etDate = view.findViewById(R.id.etDate);
         etTime = view.findViewById(R.id.etTime);
@@ -94,22 +104,55 @@ public class BookFragment extends Fragment {
 
         rvGallery = view.findViewById(R.id.rvGallery);
 
-        setupAdapters();
+        setupBarberAdapter();
         setupPickers();
         setupGallery();
-        setupButton();
-        loadBranches();
+        setupButtons();
+        setupBranchResultListener();
+
+        // initial state
+        tvSelectedBranch.setText("No branch selected");
+        spBarber.setEnabled(false);
+        btnBook.setEnabled(false);
     }
 
-    private void setupAdapters() {
-        branchAdapter = new ArrayAdapter<>(
-                requireContext(),
-                android.R.layout.simple_spinner_item,
-                branchList
-        );
-        branchAdapter.setDropDownViewResource(android.R.layout.simple_spinner_dropdown_item);
-        spBranch.setAdapter(branchAdapter);
+    private void setupButtons() {
+        btnChooseBranch.setOnClickListener(v -> {
+            requireActivity().getSupportFragmentManager().beginTransaction()
+                    .replace(R.id.roleContainer, new BranchSelectionFragment())
+                    .addToBackStack(null)
+                    .commit();
+        });
 
+        btnBook.setOnClickListener(v -> createAppointment());
+    }
+
+    private void setupBranchResultListener() {
+        getParentFragmentManager().setFragmentResultListener(
+                "branch_select_result",
+                this,
+                (requestKey, bundle) -> {
+                    selectedBranchId = bundle.getString("branchId");
+                    selectedBranchName = bundle.getString("branchName");
+
+                    if (selectedBranchId == null) return;
+
+                    tvSelectedBranch.setText(selectedBranchName != null ? selectedBranchName : "Selected");
+
+                    // Reset dependent UI/data
+                    barberList.clear();
+                    barberAdapter.notifyDataSetChanged();
+                    lastLoadedBarberId = null;
+                    clearGallery();
+
+                    spBarber.setEnabled(true);
+
+                    loadBarbersForBranch(selectedBranchId);
+                }
+        );
+    }
+
+    private void setupBarberAdapter() {
         barberAdapter = new ArrayAdapter<>(
                 requireContext(),
                 android.R.layout.simple_spinner_item,
@@ -117,32 +160,6 @@ public class BookFragment extends Fragment {
         );
         barberAdapter.setDropDownViewResource(android.R.layout.simple_spinner_dropdown_item);
         spBarber.setAdapter(barberAdapter);
-
-        spBranch.setOnItemSelectedListener(new android.widget.AdapterView.OnItemSelectedListener() {
-            @Override
-            public void onItemSelected(android.widget.AdapterView<?> parent, View view, int position, long id) {
-                if (position < 0 || position >= branchList.size()) return;
-
-                Branch selected = branchList.get(position);
-                String branchId = selected.getId();
-                if (branchId == null) return;
-
-                if (branchId.equals(lastLoadedBranchId)) return;
-                lastLoadedBranchId = branchId;
-
-                // ניקוי ספרים + גלריה בעת החלפת סניף
-                barberList.clear();
-                barberAdapter.notifyDataSetChanged();
-                lastLoadedBarberId = null;
-
-                clearGallery();
-
-                loadBarbersForBranch(branchId);
-            }
-
-            @Override
-            public void onNothingSelected(android.widget.AdapterView<?> parent) {}
-        });
 
         spBarber.setOnItemSelectedListener(new android.widget.AdapterView.OnItemSelectedListener() {
             @Override
@@ -158,10 +175,10 @@ public class BookFragment extends Fragment {
 
                 clearGallery();
 
-                Branch branch = (Branch) spBranch.getSelectedItem();
-                if (branch == null || branch.getId() == null) return;
+                if (selectedBranchId == null) return;
+                loadGalleryForBarber(selectedBranchId, barberId);
 
-                loadGalleryForBarber(branch.getId(), barberId);
+                updateBookEnabled();
             }
 
             @Override
@@ -171,9 +188,7 @@ public class BookFragment extends Fragment {
 
     private void setupGallery() {
         rvGallery.setLayoutManager(new LinearLayoutManager(requireContext(), LinearLayoutManager.HORIZONTAL, false));
-        galleryAdapter = new GalleryAdapter(item -> {
-            selectedGalleryItem = item; // יכול להיות null אם לא בחרו
-        });
+        galleryAdapter = new GalleryAdapter(item -> selectedGalleryItem = item);
         rvGallery.setAdapter(galleryAdapter);
         clearGallery();
     }
@@ -185,54 +200,6 @@ public class BookFragment extends Fragment {
             galleryAdapter.clearSelection();
         }
         selectedGalleryItem = null;
-    }
-
-    private void loadBranches() {
-        setLoading(true);
-
-        branchList.clear();
-        barberList.clear();
-        branchAdapter.notifyDataSetChanged();
-        barberAdapter.notifyDataSetChanged();
-        lastLoadedBranchId = null;
-        lastLoadedBarberId = null;
-
-        clearGallery();
-
-        // ✅ בלי orderBy כדי לא להיתקע על אינדקס/שדה חסר
-        db.collection("branches")
-                .whereEqualTo("active", true)
-                .get()
-                .addOnSuccessListener(snap -> {
-                    for (QueryDocumentSnapshot doc : snap) {
-                        Branch b = doc.toObject(Branch.class);
-                        b.setId(doc.getId()); // docId = branch1/branch2...
-                        branchList.add(b);
-                    }
-
-                    // מיון מקומי לפי name (אם קיים), אחרת לפי id
-                    Collections.sort(branchList, (a, b) -> {
-                        String an = a.getName() == null ? "" : a.getName();
-                        String bn = b.getName() == null ? "" : b.getName();
-                        if (!an.isEmpty() || !bn.isEmpty()) return an.compareToIgnoreCase(bn);
-                        String ai = a.getId() == null ? "" : a.getId();
-                        String bi = b.getId() == null ? "" : b.getId();
-                        return ai.compareToIgnoreCase(bi);
-                    });
-
-                    branchAdapter.notifyDataSetChanged();
-                    setLoading(false);
-
-                    if (branchList.isEmpty()) {
-                        Toast.makeText(requireContext(), "אין סניפים זמינים", Toast.LENGTH_LONG).show();
-                    }
-                })
-                .addOnFailureListener(e -> {
-                    setLoading(false);
-                    Toast.makeText(requireContext(),
-                            "שגיאה בטעינת סניפים: " + e.getMessage(),
-                            Toast.LENGTH_LONG).show();
-                });
     }
 
     private void loadBarbersForBranch(String branchId) {
@@ -247,11 +214,10 @@ public class BookFragment extends Fragment {
 
                     for (QueryDocumentSnapshot doc : snap) {
                         Barber barber = doc.toObject(Barber.class);
-                        barber.setId(doc.getId()); // docId = UID
+                        barber.setId(doc.getId());
                         barberList.add(barber);
                     }
 
-                    // מיון מקומי לפי שם
                     Collections.sort(barberList, Comparator.comparing(b -> {
                         String n = b.getName();
                         return n == null ? "" : n.toLowerCase(Locale.ROOT);
@@ -261,13 +227,15 @@ public class BookFragment extends Fragment {
                     setLoading(false);
 
                     if (barberList.isEmpty()) {
-                        Toast.makeText(requireContext(), "אין ספרים בסניף הזה", Toast.LENGTH_LONG).show();
+                        Toast.makeText(requireContext(), "No barbers in this branch", Toast.LENGTH_LONG).show();
                     }
+
+                    updateBookEnabled();
                 })
                 .addOnFailureListener(e -> {
                     setLoading(false);
                     Toast.makeText(requireContext(),
-                            "שגיאה בטעינת ספרים: " + e.getMessage(),
+                            "Failed to load barbers: " + e.getMessage(),
                             Toast.LENGTH_LONG).show();
                 });
     }
@@ -289,7 +257,6 @@ public class BookFragment extends Fragment {
                         galleryItems.add(item);
                     }
 
-                    // מיון לפי title
                     Collections.sort(galleryItems, Comparator.comparing(g -> {
                         String t = g.getTitle();
                         return t == null ? "" : t.toLowerCase(Locale.ROOT);
@@ -297,13 +264,11 @@ public class BookFragment extends Fragment {
 
                     galleryAdapter.setItems(galleryItems);
                     setLoading(false);
-
-                    // אם אין תמונות - זה עדיין בסדר (בחירה אופציונלית)
                 })
                 .addOnFailureListener(e -> {
                     setLoading(false);
                     Toast.makeText(requireContext(),
-                            "שגיאה בטעינת גלריה: " + e.getMessage(),
+                            "Failed to load gallery: " + e.getMessage(),
                             Toast.LENGTH_LONG).show();
                 });
     }
@@ -324,6 +289,7 @@ public class BookFragment extends Fragment {
                 (datePicker, y, m, d) -> {
                     String text = String.format(Locale.getDefault(), "%02d/%02d/%04d", d, (m + 1), y);
                     etDate.setText(text);
+                    updateBookEnabled();
                 },
                 year, month, day
         );
@@ -340,46 +306,45 @@ public class BookFragment extends Fragment {
                 (TimePicker timePicker, int h, int m) -> {
                     String text = String.format(Locale.getDefault(), "%02d:%02d", h, m);
                     etTime.setText(text);
+                    updateBookEnabled();
                 },
                 hour, minute, true
         );
         dialog.show();
     }
 
-    private void setupButton() {
-        btnBook.setOnClickListener(v -> createAppointment());
+    private void updateBookEnabled() {
+        boolean hasBranch = selectedBranchId != null;
+        boolean hasBarber = spBarber.getSelectedItem() != null && !barberList.isEmpty();
+        boolean hasDate = !TextUtils.isEmpty(etDate.getText().toString().trim());
+        boolean hasTime = !TextUtils.isEmpty(etTime.getText().toString().trim());
+
+        btnBook.setEnabled(hasBranch && hasBarber && hasDate && hasTime && progressBook.getVisibility() != View.VISIBLE);
     }
 
     private void setLoading(boolean isLoading) {
         progressBook.setVisibility(isLoading ? View.VISIBLE : View.GONE);
-        btnBook.setEnabled(!isLoading);
-        spBranch.setEnabled(!isLoading);
-        spBarber.setEnabled(!isLoading);
+        btnChooseBranch.setEnabled(!isLoading);
+        spBarber.setEnabled(!isLoading && selectedBranchId != null);
         rvGallery.setEnabled(!isLoading);
+        updateBookEnabled();
     }
 
     private void createAppointment() {
         FirebaseUser user = auth.getCurrentUser();
         if (user == null) {
-            Toast.makeText(requireContext(), "צריך להתחבר כדי להזמין תור", Toast.LENGTH_SHORT).show();
+            Toast.makeText(requireContext(), "Log in to book", Toast.LENGTH_SHORT).show();
             return;
         }
 
-        if (branchList.isEmpty()) {
-            Toast.makeText(requireContext(), "אין סניפים זמינים", Toast.LENGTH_SHORT).show();
+        if (selectedBranchId == null) {
+            Toast.makeText(requireContext(), "Choose a branch first", Toast.LENGTH_SHORT).show();
             return;
         }
 
-        if (barberList.isEmpty()) {
-            Toast.makeText(requireContext(), "אין ספרים בסניף הזה", Toast.LENGTH_SHORT).show();
-            return;
-        }
-
-        Branch branch = (Branch) spBranch.getSelectedItem();
         Barber barber = (Barber) spBarber.getSelectedItem();
-
-        if (branch == null || barber == null) {
-            Toast.makeText(requireContext(), "בחר/י סניף וספר", Toast.LENGTH_SHORT).show();
+        if (barber == null) {
+            Toast.makeText(requireContext(), "Choose a barber", Toast.LENGTH_SHORT).show();
             return;
         }
 
@@ -388,28 +353,25 @@ public class BookFragment extends Fragment {
         String notes = etNotes.getText().toString().trim();
 
         if (TextUtils.isEmpty(date)) {
-            etDate.setError("חובה");
+            etDate.setError("Required");
             etDate.requestFocus();
             return;
         }
 
         if (TextUtils.isEmpty(time)) {
-            etTime.setError("חובה");
+            etTime.setError("Required");
             etTime.requestFocus();
             return;
         }
 
         setLoading(true);
 
-        String userId = user.getUid();
-        String userEmail = user.getEmail();
-
         Map<String, Object> data = new HashMap<>();
-        data.put("userId", userId);
-        data.put("userEmail", userEmail);
+        data.put("userId", user.getUid());
+        data.put("userEmail", user.getEmail());
 
-        data.put("branchId", branch.getId());
-        data.put("branchName", branch.getName());
+        data.put("branchId", selectedBranchId);
+        data.put("branchName", selectedBranchName);
 
         data.put("barberId", barber.getId());
         data.put("barberName", barber.getName());
@@ -418,7 +380,6 @@ public class BookFragment extends Fragment {
         data.put("time", time);
         data.put("notes", notes);
 
-        // ✅ תמונה אופציונלית (אם לא בחרו - לא שולחים)
         if (selectedGalleryItem != null) {
             data.put("galleryItemId", selectedGalleryItem.getId());
             data.put("galleryTitle", selectedGalleryItem.getTitle());
@@ -429,25 +390,25 @@ public class BookFragment extends Fragment {
         data.put("createdAt", Timestamp.now());
         data.put("updatedAt", Timestamp.now());
 
-
         db.collection("appointments")
                 .add(data)
                 .addOnSuccessListener(docRef -> {
                     setLoading(false);
-                    Toast.makeText(requireContext(), "הבקשה נשלחה", Toast.LENGTH_LONG).show();
+                    Toast.makeText(requireContext(), "Request sent", Toast.LENGTH_LONG).show();
 
                     etNotes.setText("");
                     etTime.setText("");
                     etDate.setText("");
 
-                    // לא חובה, אבל נוח: לנקות בחירת תמונה לאחר שליחה
                     if (galleryAdapter != null) galleryAdapter.clearSelection();
                     selectedGalleryItem = null;
+
+                    updateBookEnabled();
                 })
                 .addOnFailureListener(e -> {
                     setLoading(false);
                     Toast.makeText(requireContext(),
-                            "שגיאה ביצירת תור: " + e.getMessage(),
+                            "Failed to create appointment: " + e.getMessage(),
                             Toast.LENGTH_LONG).show();
                 });
     }
