@@ -17,11 +17,13 @@ import androidx.recyclerview.widget.RecyclerView;
 import com.example.barber4u.R;
 import com.example.barber4u.adapters.BarberAppointmentsAdapter;
 import com.example.barber4u.models.Appointment;
+import com.google.firebase.Timestamp;
 import com.google.firebase.auth.FirebaseAuth;
 import com.google.firebase.firestore.DocumentSnapshot;
 import com.google.firebase.firestore.FirebaseFirestore;
 
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.List;
 
 public class BarberAppointmentsFragment extends Fragment {
@@ -59,7 +61,26 @@ public class BarberAppointmentsFragment extends Fragment {
         tvEmpty = view.findViewById(R.id.tvEmptyBarberAppointments);
 
         recyclerView.setLayoutManager(new LinearLayoutManager(requireContext()));
-        adapter = new BarberAppointmentsAdapter();
+
+        // ✅ Adapter with callbacks (Approve / Cancel / Done)
+        adapter = new BarberAppointmentsAdapter(new BarberAppointmentsAdapter.Listener() {
+            @Override
+            public void onApprove(@NonNull Appointment appt) {
+                updateStatus(appt.getId(), "APPOINTMENT_SCHEDULED");
+            }
+
+            @Override
+            public void onCancel(@NonNull Appointment appt) {
+                updateStatus(appt.getId(), "CANCELLED");
+            }
+
+            @Override
+            public void onDone(@NonNull Appointment appt) {
+                // ✅ “Done” makes it disappear because we filter it out
+                updateStatus(appt.getId(), "DONE");
+            }
+        });
+
         recyclerView.setAdapter(adapter);
 
         loadAppointmentsForBarber();
@@ -86,13 +107,19 @@ public class BarberAppointmentsFragment extends Fragment {
         setLoading(true);
         showEmpty(false);
 
+        // ✅ Only show active appointments
+        // PENDING = waiting for approval
+        // APPOINTMENT_SCHEDULED = approved
         db.collection("appointments")
                 .whereEqualTo("barberId", barberUid)
+                .whereIn("status", Arrays.asList("PENDING", "APPOINTMENT_SCHEDULED"))
                 .addSnapshotListener((snapshot, e) -> {
                     setLoading(false);
 
                     if (e != null) {
-                        Toast.makeText(requireContext(), "Failed to load appointments: " + e.getMessage(), Toast.LENGTH_SHORT).show();
+                        Toast.makeText(requireContext(),
+                                "Failed to load appointments: " + e.getMessage(),
+                                Toast.LENGTH_SHORT).show();
                         showEmpty(true);
                         return;
                     }
@@ -115,14 +142,42 @@ public class BarberAppointmentsFragment extends Fragment {
                         String barberName = doc.getString("barberName");
 
                         list.add(new Appointment(
-                                id, userEmail, userId,
-                                date, time, status,
-                                branchName, barberName
+                                id,
+                                userEmail,
+                                userId,
+                                date,
+                                time,
+                                status,
+                                branchName,
+                                barberName
                         ));
                     }
 
                     adapter.setItems(list);
-                    showEmpty(false);
+                    showEmpty(list.isEmpty());
+                });
+    }
+
+    private void updateStatus(@NonNull String appointmentId, @NonNull String newStatus) {
+        setLoading(true);
+
+        db.collection("appointments")
+                .document(appointmentId)
+                .update(
+                        "status", newStatus,
+                        "updatedAt", Timestamp.now()
+                )
+                .addOnSuccessListener(v -> {
+                    setLoading(false);
+                    Toast.makeText(requireContext(),
+                            "Updated: " + newStatus,
+                            Toast.LENGTH_SHORT).show();
+                })
+                .addOnFailureListener(e -> {
+                    setLoading(false);
+                    Toast.makeText(requireContext(),
+                            "Update failed: " + e.getMessage(),
+                            Toast.LENGTH_SHORT).show();
                 });
     }
 }
