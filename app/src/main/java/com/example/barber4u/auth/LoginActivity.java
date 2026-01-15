@@ -19,6 +19,13 @@ import com.example.barber4u.main.RoleMainActivity;
 import com.google.android.gms.tasks.Task;
 import com.google.firebase.auth.AuthResult;
 
+import com.google.firebase.firestore.FirebaseFirestore;
+import com.google.firebase.firestore.SetOptions;
+import com.google.firebase.messaging.FirebaseMessaging;
+
+import java.util.HashMap;
+import java.util.Map;
+
 public class LoginActivity extends AppCompatActivity {
 
     private EditText etLoginEmail, etLoginPassword;
@@ -84,6 +91,7 @@ public class LoginActivity extends AppCompatActivity {
         }
 
         String uid = task.getResult().getUser().getUid();
+        saveFcmTokenForUser(uid);
         fetchUserAndGo(uid);
     }
 
@@ -118,5 +126,19 @@ public class LoginActivity extends AppCompatActivity {
         progressBarLogin.setVisibility(isLoading ? View.VISIBLE : View.GONE);
         btnLogin.setEnabled(!isLoading);
         btnGoToRegister.setEnabled(!isLoading);
+    }
+    private void saveFcmTokenForUser(String uid) {
+        FirebaseMessaging.getInstance().getToken()
+                .addOnSuccessListener(token -> {
+                    if (token == null || token.trim().isEmpty()) return;
+
+                    Map<String, Object> data = new HashMap<>();
+                    data.put("fcmToken", token);
+
+                    FirebaseFirestore.getInstance()
+                            .collection("users")
+                            .document(uid)
+                            .set(data, SetOptions.merge());
+                });
     }
 }
