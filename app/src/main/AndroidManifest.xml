@@ -4,8 +4,10 @@
 
     <!-- Network access (Firebase/Firestore uses internet) -->
     <uses-permission android:name="android.permission.INTERNET" />
-
+    <uses-permission android:name="android.permission.ACCESS_FINE_LOCATION" />
+    <uses-permission android:name="android.permission.ACCESS_COARSE_LOCATION" />
     <application
+
         android:allowBackup="true"
         android:label="@string/app_name"
         android:icon="@mipmap/ic_launcher"
@@ -13,7 +15,11 @@
         android:supportsRtl="true"
         android:theme="@style/Theme.Barber4U">
 
-        <!-- LOGIN = first screen -->
+        <!-- ✅ GOOGLE MAPS API KEY MUST BE HERE -->
+        <meta-data
+            android:name="com.google.android.geo.API_KEY"
+            android:value="@string/google_maps_key" />
+
         <activity
             android:name=".auth.LoginActivity"
             android:exported="true">
@@ -23,16 +29,16 @@
             </intent-filter>
         </activity>
 
-        <!-- REGISTER -->
         <activity
             android:name=".auth.RegisterActivity"
             android:exported="false" />
 
-        <!-- Main activity (routes by role) -->
         <activity
             android:name=".main.RoleMainActivity"
             android:exported="false" />
 
+
     </application>
+
 
 </manifest>
