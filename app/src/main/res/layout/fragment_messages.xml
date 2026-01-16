@@ -5,6 +5,7 @@
     android:orientation="vertical"
     android:padding="24dp">
 
+    <!-- Title -->
     <TextView
         android:id="@+id/tvMessagesTitle"
         android:layout_width="wrap_content"
@@ -14,12 +15,31 @@
         android:textStyle="bold"
         android:paddingBottom="16dp" />
 
+    <!-- Progress indicator -->
+    <ProgressBar
+        android:id="@+id/progressMessages"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:layout_gravity="center_horizontal"
+        android:visibility="gone"
+        android:paddingBottom="12dp" />
+
+    <!-- Empty state -->
     <TextView
         android:id="@+id/tvNoMessages"
         android:layout_width="wrap_content"
         android:layout_height="wrap_content"
         android:text="No messages yet."
-        android:textSize="16sp" />
+        android:textSize="16sp"
+        android:visibility="gone"
+        android:paddingBottom="12dp" />
 
-    <!-- אחר כך נחליף את זה לרשימה אמיתית (RecyclerView) עם הודעות מהספר -->
+    <!-- Messages list -->
+    <androidx.recyclerview.widget.RecyclerView
+        android:id="@+id/recyclerMessages"
+        android:layout_width="match_parent"
+        android:layout_height="0dp"
+        android:layout_weight="1"
+        android:clipToPadding="false" />
+
 </LinearLayout>

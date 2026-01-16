@@ -411,6 +411,8 @@ public class AdminManageFragment extends Fragment {
                     data.put("branchIds", branchIds);
                     data.put("active", true);
                     data.put("updatedAt", Timestamp.now());
+                    data.put("ratingNum", 0);
+                    data.put("ratingSum", 0);
 
                     db.collection(COLL_BARBERS)
                             .document(uid)

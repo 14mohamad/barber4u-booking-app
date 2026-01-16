@@ -20,6 +20,7 @@ import com.example.barber4u.models.Appointment;
 import com.google.firebase.auth.FirebaseAuth;
 import com.google.firebase.firestore.DocumentSnapshot;
 import com.google.firebase.firestore.FirebaseFirestore;
+import com.google.firebase.firestore.ListenerRegistration;
 
 import java.util.ArrayList;
 import java.util.List;
@@ -35,6 +36,8 @@ public class BarberAppointmentsFragment extends Fragment {
     private FirebaseAuth auth;
     private FirebaseFirestore db;
 
+    private ListenerRegistration appointmentsListener;
+
     public BarberAppointmentsFragment() {}
 
     @Nullable
@@ -46,7 +49,17 @@ public class BarberAppointmentsFragment extends Fragment {
     ) {
         return inflater.inflate(R.layout.fragment_barber_appointments, container, false);
     }
+    private void updateStatus(@Nullable String appointmentId, @NonNull String newStatus) {
+        if (appointmentId == null || appointmentId.isEmpty()) return;
 
+        db.collection("appointments")
+                .document(appointmentId)
+                .update("status", newStatus)
+                .addOnFailureListener(e -> {
+                    if (!isAdded()) return;
+                    Toast.makeText(getContext(), "Failed to update status: " + e.getMessage(), Toast.LENGTH_SHORT).show();
+                });
+    }
     @Override
     public void onViewCreated(@NonNull View view, @Nullable Bundle savedInstanceState) {
         super.onViewCreated(view, savedInstanceState);
@@ -58,41 +71,81 @@ public class BarberAppointmentsFragment extends Fragment {
         progress = view.findViewById(R.id.progressBarberAppointments);
         tvEmpty = view.findViewById(R.id.tvEmptyBarberAppointments);
 
-        recyclerView.setLayoutManager(new LinearLayoutManager(requireContext()));
-        adapter = new BarberAppointmentsAdapter();
+        recyclerView.setLayoutManager(new LinearLayoutManager(view.getContext()));
+        adapter = new BarberAppointmentsAdapter(new BarberAppointmentsAdapter.Listener() {
+            @Override
+            public void onApprove(@NonNull Appointment appt) {
+                updateStatus(appt.getId(), "APPOINTMENT_SCHEDULED");
+            }
+
+            @Override
+            public void onCancel(@NonNull Appointment appt) {
+                updateStatus(appt.getId(), "CANCELED");
+            }
+
+            @Override
+            public void onDone(@NonNull Appointment appt) {
+                updateStatus(appt.getId(), "DONE");
+                // optional: remove from UI immediately (Firestore listener will also refresh)
+                adapter.removeById(appt.getId());
+            }
+        });
+        recyclerView.setAdapter(adapter);
         recyclerView.setAdapter(adapter);
 
-        loadAppointmentsForBarber();
+        showEmpty(true);
+        setLoading(false);
+    }
+
+    @Override
+    public void onStart() {
+        super.onStart();
+        startListeningAppointments();
+    }
+
+    @Override
+    public void onStop() {
+        super.onStop();
+        stopListeningAppointments();
     }
 
     private void setLoading(boolean isLoading) {
+        if (progress == null) return;
         progress.setVisibility(isLoading ? View.VISIBLE : View.GONE);
     }
 
     private void showEmpty(boolean show) {
-        tvEmpty.setVisibility(show ? View.VISIBLE : View.GONE);
-        recyclerView.setVisibility(show ? View.GONE : View.VISIBLE);
+        if (tvEmpty != null) tvEmpty.setVisibility(show ? View.VISIBLE : View.GONE);
+        if (recyclerView != null) recyclerView.setVisibility(show ? View.GONE : View.VISIBLE);
     }
 
-    private void loadAppointmentsForBarber() {
+    private void startListeningAppointments() {
         if (auth.getCurrentUser() == null) {
-            Toast.makeText(requireContext(), "Barber not logged in", Toast.LENGTH_SHORT).show();
+            if (isAdded()) Toast.makeText(getContext(), "Barber not logged in", Toast.LENGTH_SHORT).show();
+            adapter.setItems(new ArrayList<>());
             showEmpty(true);
             return;
         }
 
         String barberUid = auth.getCurrentUser().getUid();
 
+        stopListeningAppointments(); // avoid duplicate listeners
+
         setLoading(true);
         showEmpty(false);
 
-        db.collection("appointments")
+        appointmentsListener = db.collection("appointments")
                 .whereEqualTo("barberId", barberUid)
                 .addSnapshotListener((snapshot, e) -> {
+                    if (!isAdded()) return; // <-- CRITICAL FIX
+
                     setLoading(false);
 
                     if (e != null) {
-                        Toast.makeText(requireContext(), "Failed to load appointments: " + e.getMessage(), Toast.LENGTH_SHORT).show();
+                        Toast.makeText(getContext(),
+                                "Failed to load appointments: " + e.getMessage(),
+                                Toast.LENGTH_SHORT).show();
+                        adapter.setItems(new ArrayList<>());
                         showEmpty(true);
                         return;
                     }
@@ -115,14 +168,26 @@ public class BarberAppointmentsFragment extends Fragment {
                         String barberName = doc.getString("barberName");
 
                         list.add(new Appointment(
-                                id, userEmail, userId,
-                                date, time, status,
-                                branchName, barberName
+                                id,
+                                userEmail,
+                                userId,
+                                date,
+                                time,
+                                status,
+                                branchName,
+                                barberName
                         ));
                     }
 
                     adapter.setItems(list);
-                    showEmpty(false);
+                    showEmpty(list.isEmpty());
                 });
+    }
+
+    private void stopListeningAppointments() {
+        if (appointmentsListener != null) {
+            appointmentsListener.remove();
+            appointmentsListener = null;
+        }
     }
 }
