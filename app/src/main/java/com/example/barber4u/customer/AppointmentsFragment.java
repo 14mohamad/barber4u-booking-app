@@ -21,6 +21,7 @@ import com.google.firebase.auth.FirebaseAuth;
 import com.google.firebase.firestore.DocumentSnapshot;
 import com.google.firebase.firestore.FirebaseFirestore;
 import com.google.firebase.firestore.GeoPoint;
+import com.google.firebase.firestore.ListenerRegistration;
 
 import java.io.IOException;
 import java.util.ArrayList;
@@ -46,11 +47,14 @@ public class AppointmentsFragment extends Fragment {
     // Adapter
     private CustomerAppointmentsAdapter adapter;
 
-    // Cache branchId -> address string
+    // Cache branchId -> english address
     private final Map<String, String> branchAddressCache = new HashMap<>();
 
-    // Background thread for geocoding
+    // Background thread for geocoding (keep for fragment lifetime)
     private final ExecutorService geocodeExecutor = Executors.newSingleThreadExecutor();
+
+    // Firestore listener registration (MUST remove)
+    private ListenerRegistration appointmentsListener;
 
     public AppointmentsFragment() {}
 
@@ -75,51 +79,58 @@ public class AppointmentsFragment extends Fragment {
         progress = view.findViewById(R.id.progressCustomerAppointments);
         tvEmpty = view.findViewById(R.id.tvEmptyCustomerAppointments);
 
-        recyclerView.setLayoutManager(new LinearLayoutManager(requireContext()));
+        recyclerView.setLayoutManager(new LinearLayoutManager(view.getContext()));
         adapter = new CustomerAppointmentsAdapter();
         recyclerView.setAdapter(adapter);
 
-        loadAppointmentsForUser();
+        showEmpty(true);
+        setLoading(false);
     }
 
     @Override
-    public void onDestroyView() {
-        super.onDestroyView();
-        // Avoid leaking the executor if fragment is destroyed
+    public void onStart() {
+        super.onStart();
+        startListeningAppointments();
+    }
+
+    @Override
+    public void onStop() {
+        super.onStop();
+        stopListeningAppointments();
+    }
+
+    @Override
+    public void onDestroy() {
+        super.onDestroy();
         geocodeExecutor.shutdownNow();
     }
 
-    private void setLoading(boolean isLoading) {
-        progress.setVisibility(isLoading ? View.VISIBLE : View.GONE);
-    }
-
-    private void showEmpty(boolean show) {
-        tvEmpty.setVisibility(show ? View.VISIBLE : View.GONE);
-        recyclerView.setVisibility(show ? View.GONE : View.VISIBLE);
-    }
-
-    private void loadAppointmentsForUser() {
+    private void startListeningAppointments() {
         if (auth.getCurrentUser() == null) {
-            Toast.makeText(requireContext(), "Please log in", Toast.LENGTH_SHORT).show();
+            if (isAdded()) Toast.makeText(getContext(), "Please log in", Toast.LENGTH_SHORT).show();
             showEmpty(true);
             return;
         }
 
         String uid = auth.getCurrentUser().getUid();
 
+        stopListeningAppointments(); // ensure no duplicate listeners
+
         setLoading(true);
         showEmpty(false);
 
-        // Listen in real-time so status updates show automatically
-        db.collection("appointments")
+        appointmentsListener = db.collection("appointments")
                 .whereEqualTo("userId", uid)
                 .addSnapshotListener((snapshot, e) -> {
+                    if (!isAdded()) return; // <-- CRITICAL: fragment may be detached
+
                     setLoading(false);
 
                     if (e != null) {
-                        Toast.makeText(requireContext(),
+                        Toast.makeText(getContext(),
                                 "Failed to load appointments: " + e.getMessage(),
                                 Toast.LENGTH_LONG).show();
+                        adapter.setItems(Collections.emptyList());
                         showEmpty(true);
                         return;
                     }
@@ -135,46 +146,62 @@ public class AppointmentsFragment extends Fragment {
                     for (DocumentSnapshot doc : snapshot.getDocuments()) {
                         String appointmentId = doc.getId();
 
-                        String date = doc.getString("date");
-                        String time = doc.getString("time");
-                        String status = doc.getString("status");
+                        String date = safe(doc.getString("date"));
+                        String time = safe(doc.getString("time"));
+                        String status = safe(doc.getString("status"));
 
-                        String barberName = doc.getString("barberName");
-                        String branchName = doc.getString("branchName");
-                        String branchId = doc.getString("branchId");
+                        String barberName = safe(doc.getString("barberName"));
+                        String branchName = safe(doc.getString("branchName"));
+                        String branchId = safe(doc.getString("branchId"));
 
                         CustomerAppointmentItem item = new CustomerAppointmentItem(
                                 appointmentId,
-                                safe(branchName),
-                                safe(barberName),
-                                safe(date),
-                                safe(time),
-                                safe(status),
-                                safe(branchId)
+                                branchName,
+                                barberName,
+                                date,
+                                time,
+                                status,
+                                branchId
                         );
 
-                        // If we already have branch address cached, use it
-                        if (!item.branchId.isEmpty() && branchAddressCache.containsKey(item.branchId)) {
-                            item.branchAddressEn = branchAddressCache.get(item.branchId);
-                        } else if (!item.branchId.isEmpty()) {
-                            // Fetch branch doc -> get GeoPoint -> reverse geocode English address
-                            fetchBranchAddressEnglish(item.branchId, appointmentId);
+                        if (!branchId.isEmpty()) {
+                            String cached = branchAddressCache.get(branchId);
+                            if (cached != null && !cached.isEmpty()) {
+                                item.branchAddressEn = cached;
+                            } else {
+                                // fetch+geocode async, update adapter row later
+                                fetchBranchAddressEnglish(branchId, appointmentId);
+                            }
                         }
 
                         items.add(item);
                     }
-
-                    // Optional: sort appointments (e.g., by date string)
-                    // If you store timestamps, sorting is better. Keeping as-is for now.
 
                     adapter.setItems(items);
                     showEmpty(items.isEmpty());
                 });
     }
 
+    private void stopListeningAppointments() {
+        if (appointmentsListener != null) {
+            appointmentsListener.remove();
+            appointmentsListener = null;
+        }
+    }
+
+    private void setLoading(boolean isLoading) {
+        if (progress == null) return;
+        progress.setVisibility(isLoading ? View.VISIBLE : View.GONE);
+    }
+
+    private void showEmpty(boolean show) {
+        if (tvEmpty != null) tvEmpty.setVisibility(show ? View.VISIBLE : View.GONE);
+        if (recyclerView != null) recyclerView.setVisibility(show ? View.GONE : View.VISIBLE);
+    }
+
     /**
-     * Fetches branch's GeoPoint from Firestore and reverse geocodes to an ENGLISH address.
-     * Updates the matching appointment row in the adapter.
+     * Fetch branch GeoPoint from Firestore, reverse-geocode to ENGLISH address, cache + update list row.
+     * IMPORTANT: No requireContext() inside background thread.
      */
     private void fetchBranchAddressEnglish(@NonNull String branchId, @NonNull String appointmentId) {
         db.collection("branches")
@@ -183,61 +210,60 @@ public class AppointmentsFragment extends Fragment {
                 .addOnSuccessListener(branchDoc -> {
                     if (!branchDoc.exists()) return;
 
-                    // You said "address is a GeoPoint".
-                    // We'll try common field names. Adjust if your field is named differently.
+                    // Try common field names; adjust to your real field
                     GeoPoint gp = branchDoc.getGeoPoint("location");
                     if (gp == null) gp = branchDoc.getGeoPoint("geoPoint");
-                    //if (gp == null) gp = branchDoc.getGeoPoint("location");
+                    if (gp == null) gp = branchDoc.getGeoPoint("address"); // if you literally named it "address"
 
                     if (gp == null) return;
 
                     final double lat = gp.getLatitude();
                     final double lng = gp.getLongitude();
 
-                    // Reverse-geocode in the background thread
-                    geocodeExecutor.execute(() -> {
-                        String addressEn = reverseGeocodeEnglish(lat, lng);
+                    // Capture a SAFE context reference for Geocoder (must be on main thread)
+                    final android.content.Context ctx = getContext();
+                    if (ctx == null) return;
 
-                        // Cache it
-                        if (addressEn != null && !addressEn.isEmpty()) {
-                            branchAddressCache.put(branchId, addressEn);
-                        } else {
+                    geocodeExecutor.execute(() -> {
+                        String addressEn = reverseGeocodeEnglish(ctx, lat, lng);
+
+                        if (addressEn == null || addressEn.isEmpty()) {
                             addressEn = String.format(Locale.ENGLISH, "%.5f, %.5f", lat, lng);
-                            branchAddressCache.put(branchId, addressEn);
                         }
 
-                        final String finalAddressEn = addressEn;
+                        branchAddressCache.put(branchId, addressEn);
 
-                        // Update UI on main thread
-                        if (isAdded()) {
-                            requireActivity().runOnUiThread(() -> adapter.updateAddressForAppointment(appointmentId, finalAddressEn));
+                        // Back to UI thread safely
+                        if (isAdded() && getActivity() != null) {
+                            String finalAddressEn = addressEn;
+                            getActivity().runOnUiThread(() -> {
+                                if (!isAdded()) return;
+                                adapter.updateAddressForAppointment(appointmentId, finalAddressEn);
+                            });
                         }
                     });
                 });
     }
 
     /**
-     * Returns an English address (best effort). Might return null/empty if Geocoder fails.
+     * Best effort English address.
      */
-    private String reverseGeocodeEnglish(double lat, double lng) {
+    private String reverseGeocodeEnglish(@NonNull android.content.Context ctx, double lat, double lng) {
         try {
-            Geocoder geocoder = new Geocoder(requireContext(), Locale.ENGLISH);
+            Geocoder geocoder = new Geocoder(ctx, Locale.ENGLISH);
             List<Address> results = geocoder.getFromLocation(lat, lng, 1);
             if (results == null || results.isEmpty()) return null;
 
             Address a = results.get(0);
-
-            // Build a nice English address line
-            // You can tweak formatting here.
             String line = a.getAddressLine(0);
             if (line != null && !line.trim().isEmpty()) return line;
 
-            // Fallback composition
             StringBuilder sb = new StringBuilder();
             if (a.getThoroughfare() != null) sb.append(a.getThoroughfare()).append(" ");
             if (a.getSubThoroughfare() != null) sb.append(a.getSubThoroughfare()).append(", ");
             if (a.getLocality() != null) sb.append(a.getLocality()).append(", ");
             if (a.getCountryName() != null) sb.append(a.getCountryName());
+
             String built = sb.toString().trim();
             return built.isEmpty() ? null : built;
 
@@ -251,7 +277,7 @@ public class AppointmentsFragment extends Fragment {
     }
 
     // ----------------------------
-    // Simple view-model for the list
+    // View-model
     // ----------------------------
     static class CustomerAppointmentItem {
         final String appointmentId;
@@ -282,7 +308,7 @@ public class AppointmentsFragment extends Fragment {
     }
 
     // ----------------------------
-    // Minimal RecyclerView Adapter (no extra file needed)
+    // Inline RecyclerView Adapter
     // ----------------------------
     static class CustomerAppointmentsAdapter extends RecyclerView.Adapter<CustomerAppointmentsAdapter.VH> {
 
@@ -320,12 +346,10 @@ public class AppointmentsFragment extends Fragment {
             h.tvBarber.setText("Barber: " + it.barberName);
             h.tvBranch.setText("Branch: " + it.branchName);
 
-            // English address (may load later)
-            if (it.branchAddressEn == null || it.branchAddressEn.isEmpty()) {
-                h.tvAddress.setText("Address: Loading...");
-            } else {
-                h.tvAddress.setText("Address: " + it.branchAddressEn);
-            }
+            String addr = it.branchAddressEn;
+            h.tvAddress.setText((addr == null || addr.isEmpty())
+                    ? "Address: Loading..."
+                    : "Address: " + addr);
 
             h.tvDateTime.setText("Date: " + it.date + " " + it.time);
             h.tvStatus.setText("Status: " + it.status);

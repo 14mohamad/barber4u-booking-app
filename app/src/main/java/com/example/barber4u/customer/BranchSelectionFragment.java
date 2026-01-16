@@ -1,19 +1,19 @@
 package com.example.barber4u.customer;
 
+import android.Manifest;
+import android.content.pm.PackageManager;
 import android.os.Bundle;
 import android.view.LayoutInflater;
 import android.view.View;
 import android.view.ViewGroup;
 import android.widget.TextView;
 import android.widget.Toast;
-import android.Manifest;
-import android.content.pm.PackageManager;
 
 import androidx.activity.result.ActivityResultLauncher;
 import androidx.activity.result.contract.ActivityResultContracts;
-import androidx.core.content.ContextCompat;
 import androidx.annotation.NonNull;
 import androidx.annotation.Nullable;
+import androidx.core.content.ContextCompat;
 import androidx.fragment.app.Fragment;
 
 import com.example.barber4u.R;
@@ -36,7 +36,9 @@ public class BranchSelectionFragment extends Fragment implements OnMapReadyCallb
 
     private GoogleMap map;
     private final FirebaseFirestore db = FirebaseFirestore.getInstance();
+
     private ActivityResultLauncher<String[]> locationPermissionLauncher;
+
     private final Map<String, Branch> markerToBranch = new HashMap<>();
     private Branch selectedBranch;
 
@@ -54,37 +56,7 @@ public class BranchSelectionFragment extends Fragment implements OnMapReadyCallb
     ) {
         return inflater.inflate(R.layout.fragment_branch_selection, container, false);
     }
-    private void requestLocationPermissionIfNeeded() {
-        boolean fineGranted = ContextCompat.checkSelfPermission(requireContext(), Manifest.permission.ACCESS_FINE_LOCATION)
-                == PackageManager.PERMISSION_GRANTED;
-        boolean coarseGranted = ContextCompat.checkSelfPermission(requireContext(), Manifest.permission.ACCESS_COARSE_LOCATION)
-                == PackageManager.PERMISSION_GRANTED;
 
-        if (fineGranted || coarseGranted) {
-            enableMyLocationIfPermitted();
-        } else {
-            locationPermissionLauncher.launch(new String[]{
-                    Manifest.permission.ACCESS_FINE_LOCATION,
-                    Manifest.permission.ACCESS_COARSE_LOCATION
-            });
-        }
-    }
-
-    private void enableMyLocationIfPermitted() {
-        if (map == null) return;
-
-        boolean fineGranted = ContextCompat.checkSelfPermission(requireContext(), Manifest.permission.ACCESS_FINE_LOCATION)
-                == PackageManager.PERMISSION_GRANTED;
-        boolean coarseGranted = ContextCompat.checkSelfPermission(requireContext(), Manifest.permission.ACCESS_COARSE_LOCATION)
-                == PackageManager.PERMISSION_GRANTED;
-
-        if (fineGranted || coarseGranted) {
-            try {
-                map.setMyLocationEnabled(true); // shows blue dot + “my location” button
-                map.getUiSettings().setMyLocationButtonEnabled(true);
-            } catch (SecurityException ignored) {}
-        }
-    }
     @Override
     public void onViewCreated(@NonNull View view, @Nullable Bundle savedInstanceState) {
         super.onViewCreated(view, savedInstanceState);
@@ -93,25 +65,30 @@ public class BranchSelectionFragment extends Fragment implements OnMapReadyCallb
         btnSelectBranch = view.findViewById(R.id.btnSelectBranch);
 
         btnSelectBranch.setEnabled(false);
-
         btnSelectBranch.setOnClickListener(v -> returnSelectedBranch());
 
+        // Permission launcher (must be created before requesting)
+        locationPermissionLauncher = registerForActivityResult(
+                new ActivityResultContracts.RequestMultiplePermissions(),
+                result -> {
+                    boolean fine = Boolean.TRUE.equals(result.get(Manifest.permission.ACCESS_FINE_LOCATION));
+                    boolean coarse = Boolean.TRUE.equals(result.get(Manifest.permission.ACCESS_COARSE_LOCATION));
+
+                    if (fine || coarse) {
+                        enableMyLocationIfPermitted();
+                    } else {
+                        Toast.makeText(requireContext(), "Location permission denied", Toast.LENGTH_SHORT).show();
+                    }
+                }
+        );
+
+        // Attach SupportMapFragment into container
         SupportMapFragment mapFragment = SupportMapFragment.newInstance();
         getChildFragmentManager()
                 .beginTransaction()
                 .replace(R.id.branch_map_container, mapFragment)
                 .commit();
-        locationPermissionLauncher =
-                registerForActivityResult(new ActivityResultContracts.RequestMultiplePermissions(), result -> {
-                    Boolean fine = result.getOrDefault(Manifest.permission.ACCESS_FINE_LOCATION, false);
-                    Boolean coarse = result.getOrDefault(Manifest.permission.ACCESS_COARSE_LOCATION, false);
 
-                    if ((fine != null && fine) || (coarse != null && coarse)) {
-                        enableMyLocationIfPermitted();
-                    } else {
-                        Toast.makeText(requireContext(), "Location permission denied", Toast.LENGTH_SHORT).show();
-                    }
-                });
         mapFragment.getMapAsync(this);
     }
 
@@ -119,8 +96,10 @@ public class BranchSelectionFragment extends Fragment implements OnMapReadyCallb
     public void onMapReady(@NonNull GoogleMap googleMap) {
         map = googleMap;
 
+        // Enable location (safe)
         requestLocationPermissionIfNeeded();
 
+        // Marker selection
         map.setOnMarkerClickListener(marker -> {
             selectedBranch = markerToBranch.get(marker.getId());
             if (selectedBranch != null) {
@@ -134,13 +113,50 @@ public class BranchSelectionFragment extends Fragment implements OnMapReadyCallb
         loadBranches();
     }
 
+    private boolean hasLocationPermission() {
+        return ContextCompat.checkSelfPermission(requireContext(), Manifest.permission.ACCESS_FINE_LOCATION)
+                == PackageManager.PERMISSION_GRANTED
+                || ContextCompat.checkSelfPermission(requireContext(), Manifest.permission.ACCESS_COARSE_LOCATION)
+                == PackageManager.PERMISSION_GRANTED;
+    }
+
+    private void requestLocationPermissionIfNeeded() {
+        if (map == null) return;
+
+        if (hasLocationPermission()) {
+            enableMyLocationIfPermitted();
+        } else {
+            locationPermissionLauncher.launch(new String[]{
+                    Manifest.permission.ACCESS_FINE_LOCATION,
+                    Manifest.permission.ACCESS_COARSE_LOCATION
+            });
+        }
+    }
+
+    private void enableMyLocationIfPermitted() {
+        if (map == null) return;
+        if (!hasLocationPermission()) return;
+
+        try {
+            map.setMyLocationEnabled(true); // blue dot
+            map.getUiSettings().setMyLocationButtonEnabled(true);
+        } catch (SecurityException ignored) {
+            // permission might be revoked between check and call
+        }
+    }
+
     private void loadBranches() {
         db.collection("branches")
                 .whereEqualTo("active", true)
                 .get()
                 .addOnSuccessListener(snap -> {
                     markerToBranch.clear();
+
+                    // IMPORTANT: don't call map.clear() because it removes the blue-dot layer too.
+                    // Instead, just remove markers by tracking them if needed.
+                    // Easiest approach: clear then re-enable location.
                     map.clear();
+                    enableMyLocationIfPermitted();
 
                     LatLng first = null;
 
@@ -148,7 +164,12 @@ public class BranchSelectionFragment extends Fragment implements OnMapReadyCallb
                         Branch b = doc.toObject(Branch.class);
                         b.setId(doc.getId());
 
-                        LatLng pos = new LatLng(b.getLat(), b.getLng());
+                        // Skip bad coordinates
+                        double lat = b.getLat();
+                        double lng = b.getLng();
+                        if (lat == 0.0 && lng == 0.0) continue;
+
+                        LatLng pos = new LatLng(lat, lng);
                         if (first == null) first = pos;
 
                         Marker m = map.addMarker(new MarkerOptions()
@@ -156,13 +177,13 @@ public class BranchSelectionFragment extends Fragment implements OnMapReadyCallb
                                 .title(b.getName())
                         );
 
-                        if (m != null) {
-                            markerToBranch.put(m.getId(), b);
-                        }
+                        if (m != null) markerToBranch.put(m.getId(), b);
                     }
 
                     if (first != null) {
                         map.moveCamera(CameraUpdateFactory.newLatLngZoom(first, 12f));
+                    } else {
+                        Toast.makeText(requireContext(), "No valid branch locations found", Toast.LENGTH_SHORT).show();
                     }
                 })
                 .addOnFailureListener(e ->
