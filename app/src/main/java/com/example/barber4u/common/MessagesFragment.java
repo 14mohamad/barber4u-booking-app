@@ -1,10 +1,14 @@
 package com.example.barber4u.common;
 
+import android.app.AlertDialog;
 import android.os.Bundle;
+import android.util.Log;
 import android.view.LayoutInflater;
 import android.view.View;
 import android.view.ViewGroup;
+import android.widget.LinearLayout;
 import android.widget.ProgressBar;
+import android.widget.RatingBar;
 import android.widget.TextView;
 import android.widget.Toast;
 
@@ -18,12 +22,16 @@ import com.example.barber4u.R;
 import com.example.barber4u.adapters.MessagesAdapter;
 import com.google.firebase.auth.FirebaseAuth;
 import com.google.firebase.auth.FirebaseUser;
+import com.google.firebase.firestore.DocumentReference;
+import com.google.firebase.firestore.FieldValue;
 import com.google.firebase.firestore.FirebaseFirestore;
 import com.google.firebase.firestore.ListenerRegistration;
 import com.google.firebase.firestore.Query;
+import com.google.firebase.firestore.WriteBatch;
 
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Map;
 
 public class MessagesFragment extends Fragment implements MessagesAdapter.Listener {
 
@@ -172,8 +180,53 @@ public class MessagesFragment extends Fragment implements MessagesAdapter.Listen
     }
 
     @Override
-    public void onRateNow(@NonNull MessageItem item) {
-        // We'll implement the rating popup next.
-        Toast.makeText(requireContext(), "Rate dialog goes here", Toast.LENGTH_SHORT).show();
+    public void onRateNow(@NonNull MessageItem msg) {
+        showRatingDialog(msg);
+    }
+    private void showRatingDialog(@NonNull MessageItem msg) {
+        View view = LayoutInflater.from(requireContext())
+                .inflate(R.layout.dialog_rating, null);
+
+        RatingBar ratingBar = view.findViewById(R.id.ratingBar);
+
+        new AlertDialog.Builder(requireContext())
+                .setTitle("Rate " + msg.barberName)
+                .setView(view)
+                .setPositiveButton("Submit", (d, w) -> {
+                    int rating = (int) ratingBar.getRating();
+                    if (rating > 0) {
+                        submitRating(msg, rating);
+                    }
+                })
+                .setNegativeButton("Cancel", null)
+                .show();
+    }
+
+    private void submitRating(@NonNull MessageItem msg, int rating) {
+        WriteBatch batch = db.batch();
+
+        DocumentReference apptRef = db.collection("appointments").document(msg.appointmentId);
+        batch.update(apptRef, Map.of(
+                "rating", rating,
+                "ratedAt", FieldValue.serverTimestamp()
+        ));
+
+        DocumentReference msgRef = db.collection("users")
+                .document(FirebaseAuth.getInstance().getUid())
+                .collection("messages")
+                .document(msg.id);
+        batch.delete(msgRef);
+
+        batch.commit()
+                .addOnSuccessListener(unused -> {
+                    if (!isAdded()) return;
+                    Toast.makeText(requireContext(), "Thanks for your rating!", Toast.LENGTH_SHORT).show();
+                })
+                .addOnFailureListener(e -> {
+                    if (!isAdded()) return;
+                    Toast.makeText(requireContext(),
+                            "Failed to submit rating: " + e.getMessage(),
+                            Toast.LENGTH_LONG).show();
+                });
     }
 }
