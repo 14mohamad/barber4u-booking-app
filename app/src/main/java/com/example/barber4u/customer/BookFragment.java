@@ -280,6 +280,7 @@ public class BookFragment extends Fragment {
 
     private void openDatePicker() {
         Calendar c = Calendar.getInstance();
+
         int year = c.get(Calendar.YEAR);
         int month = c.get(Calendar.MONTH);
         int day = c.get(Calendar.DAY_OF_MONTH);
@@ -287,14 +288,29 @@ public class BookFragment extends Fragment {
         DatePickerDialog dialog = new DatePickerDialog(
                 requireContext(),
                 (datePicker, y, m, d) -> {
-                    String text = String.format(Locale.getDefault(), "%02d/%02d/%04d", d, (m + 1), y);
+                    String text = String.format(
+                            Locale.getDefault(),
+                            "%02d/%02d/%04d",
+                            d, (m + 1), y
+                    );
                     etDate.setText(text);
                     updateBookEnabled();
                 },
                 year, month, day
         );
+
+        // ✅ Prevent selecting past dates (today and forward only)
+        Calendar minDate = Calendar.getInstance();
+        minDate.set(Calendar.HOUR_OF_DAY, 0);
+        minDate.set(Calendar.MINUTE, 0);
+        minDate.set(Calendar.SECOND, 0);
+        minDate.set(Calendar.MILLISECOND, 0);
+
+        dialog.getDatePicker().setMinDate(minDate.getTimeInMillis());
+
         dialog.show();
     }
+
 
     private void openTimePicker() {
         Calendar c = Calendar.getInstance();
