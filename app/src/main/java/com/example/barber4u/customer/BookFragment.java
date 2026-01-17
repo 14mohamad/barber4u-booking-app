@@ -167,7 +167,7 @@ public class BookFragment extends Fragment {
                 if (position < 0 || position >= barberList.size()) return;
 
                 Barber barber = barberList.get(position);
-                String barberId = barber.getId();
+                String barberId = barber.getUid();
                 if (barberId == null) return;
 
                 if (barberId.equals(lastLoadedBarberId)) return;
@@ -214,7 +214,7 @@ public class BookFragment extends Fragment {
 
                     for (QueryDocumentSnapshot doc : snap) {
                         Barber barber = doc.toObject(Barber.class);
-                        barber.setId(doc.getId());
+                        barber.setUid(doc.getId());
                         barberList.add(barber);
                     }
 
@@ -389,7 +389,7 @@ public class BookFragment extends Fragment {
         data.put("branchId", selectedBranchId);
         data.put("branchName", selectedBranchName);
 
-        data.put("barberId", barber.getId());
+        data.put("barberId", barber.getUid());
         data.put("barberName", barber.getName());
 
         data.put("date", date);

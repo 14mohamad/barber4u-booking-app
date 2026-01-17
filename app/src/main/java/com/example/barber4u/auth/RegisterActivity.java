@@ -14,7 +14,7 @@ import android.widget.Toast;
 import android.content.Intent;
 
 import com.example.barber4u.R;
-import com.example.barber4u.models.User;
+import com.example.barber4u.models.Customer;
 import com.google.android.gms.tasks.OnCompleteListener;
 import com.google.android.gms.tasks.Task;
 import com.google.firebase.auth.AuthResult;
@@ -129,12 +129,12 @@ public class RegisterActivity extends AppCompatActivity {
     }
 
     private void createUserInFirestore(String uid, String name, String email) {
-        // כל משתמש חדש הוא CUSTOMER – רק אדמין ישנה את זה
-        User user = new User(uid, name, email, User.Role.CUSTOMER);
+        // ✅ New users are customers by default
+        Customer customer = new Customer(uid, name, email);
 
         db.collection("users")
                 .document(uid)
-                .set(user)
+                .set(customer)
                 .addOnCompleteListener(task -> {
                     setLoading(false);
 
@@ -143,7 +143,6 @@ public class RegisterActivity extends AppCompatActivity {
                                 "Account created successfully",
                                 Toast.LENGTH_SHORT).show();
 
-                        // אחרי הרשמה – הולכים למסך התחברות
                         Intent intent = new Intent(RegisterActivity.this, LoginActivity.class);
                         startActivity(intent);
                         finish();

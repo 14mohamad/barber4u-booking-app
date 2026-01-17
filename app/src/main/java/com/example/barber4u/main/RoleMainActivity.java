@@ -23,10 +23,10 @@ import com.example.barber4u.customer.BookFragment;
 import com.example.barber4u.customer.HomeCustomerFragment;
 import com.example.barber4u.data.firebase.FirebaseProvider;
 import com.example.barber4u.data.repositories.UserRepository;
-import com.example.barber4u.models.User;
 import com.google.android.material.appbar.MaterialToolbar;
 import com.google.android.material.bottomnavigation.BottomNavigationView;
 import com.google.firebase.auth.FirebaseUser;
+import com.google.firebase.firestore.DocumentSnapshot;
 
 public class RoleMainActivity extends AppCompatActivity {
 
@@ -40,7 +40,13 @@ public class RoleMainActivity extends AppCompatActivity {
 
     private String userName;
     private String userEmail;
-    private User.Role role = User.Role.CUSTOMER; // default safe
+
+    // Do NOT assume a role before reading from Firestore
+    private Role role = null;
+
+    private enum Role {
+        CUSTOMER, BARBER, ADMIN
+    }
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
@@ -59,7 +65,6 @@ public class RoleMainActivity extends AppCompatActivity {
     @Override
     protected void onStart() {
         super.onStart();
-        // אם עשית Log out וחזרת אחורה — לא לאפשר להישאר כאן
         if (FirebaseProvider.auth().getCurrentUser() == null) {
             goToLogin();
         }
@@ -68,7 +73,6 @@ public class RoleMainActivity extends AppCompatActivity {
     private void loadRoleAndSetupUI(Bundle savedInstanceState) {
         FirebaseUser current = FirebaseProvider.auth().getCurrentUser();
         if (current == null) {
-            Toast.makeText(this, "Not logged in", Toast.LENGTH_SHORT).show();
             goToLogin();
             return;
         }
@@ -77,28 +81,35 @@ public class RoleMainActivity extends AppCompatActivity {
 
         userRepo.getUserById(uid, new UserRepository.UserCallback() {
             @Override
-            public void onSuccess(@NonNull com.google.firebase.firestore.DocumentSnapshot doc) {
-                role = userRepo.parseRole(doc);
+            public void onSuccess(@NonNull DocumentSnapshot doc) {
+                // Activity may already be finishing (logout/back)
+                if (isFinishing() || isDestroyed()) return;
 
-                // fallback אם לא הגיעו extras מה-LoginActivity
+                role = parseRoleFromDoc(doc);
+
+                // fallback if LoginActivity extras missing
                 if (userName == null) userName = doc.getString("name");
                 if (userEmail == null) userEmail = doc.getString("email");
 
                 setupBottomNavMenu(role);
+                setupNavigationListener(role);
 
+                // First time only: show the start screen
                 if (savedInstanceState == null) {
                     Fragment start = getStartFragment(role);
                     replaceFragment(start);
-
                     selectStartMenuItem(role);
                     topAppBar.setTitle(getStartTitle(role));
+                } else {
+                    // If recreating, keep whatever fragment is already there,
+                    // but ensure the menu is correct.
+                    // Title will remain as-is.
                 }
-
-                setupNavigationListener(role);
             }
 
             @Override
             public void onError(@NonNull Exception e) {
+                if (isFinishing() || isDestroyed()) return;
                 Toast.makeText(RoleMainActivity.this,
                         "Failed to load role: " + e.getMessage(),
                         Toast.LENGTH_LONG).show();
@@ -107,35 +118,54 @@ public class RoleMainActivity extends AppCompatActivity {
         });
     }
 
+    /**
+     * Does NOT depend on com.example.barber4u.models.User (so you can make it abstract safely).
+     */
+    @NonNull
+    private Role parseRoleFromDoc(@NonNull DocumentSnapshot doc) {
+        String r = doc.getString("role");
+        if (r == null) return Role.CUSTOMER;
+
+        r = r.trim().toUpperCase();
+        if (r.equals("ADMIN")) return Role.ADMIN;
+        if (r.equals("BARBER")) return Role.BARBER;
+        return Role.CUSTOMER;
+    }
+
     private void goToLogin() {
         Intent intent = new Intent(this, LoginActivity.class);
-        intent.addFlags(Intent.FLAG_ACTIVITY_CLEAR_TOP | Intent.FLAG_ACTIVITY_NEW_TASK | Intent.FLAG_ACTIVITY_CLEAR_TASK);
+        intent.addFlags(Intent.FLAG_ACTIVITY_CLEAR_TOP
+                | Intent.FLAG_ACTIVITY_NEW_TASK
+                | Intent.FLAG_ACTIVITY_CLEAR_TASK);
         startActivity(intent);
         finish();
     }
 
-    private void setupBottomNavMenu(User.Role role) {
+    private void setupBottomNavMenu(@NonNull Role role) {
         Menu menu = bottomNav.getMenu();
         menu.clear();
 
         MenuInflater inflater = getMenuInflater();
-        if (role == User.Role.CUSTOMER) {
+        if (role == Role.CUSTOMER) {
             inflater.inflate(R.menu.menu_bottom_customer, menu);
-        } else if (role == User.Role.BARBER) {
+        } else if (role == Role.BARBER) {
             inflater.inflate(R.menu.menu_barber_bottom_nav, menu);
-        } else { // ADMIN
+        } else {
             inflater.inflate(R.menu.menu_admin_bottom_nav, menu);
         }
     }
 
-    private void setupNavigationListener(User.Role role) {
+    private void setupNavigationListener(@NonNull Role role) {
+        // Important: replace any previous listener (avoid “multiple callbacks” after recreations)
+        bottomNav.setOnItemSelectedListener(null);
+
         bottomNav.setOnItemSelectedListener(item -> {
             int id = item.getItemId();
 
             Fragment selected = null;
             String title = "Barber4U";
 
-            if (role == User.Role.CUSTOMER) {
+            if (role == Role.CUSTOMER) {
                 if (id == R.id.nav_home) {
                     selected = createCustomerHome();
                     title = "Home";
@@ -153,14 +183,9 @@ public class RoleMainActivity extends AppCompatActivity {
                     title = "Settings";
                 }
 
-            } else if (role == User.Role.BARBER) {
+            } else if (role == Role.BARBER) {
                 if (id == R.id.nav_home) {
-                    BarberDashboardFragment fragment = new BarberDashboardFragment();
-                    Bundle args = new Bundle();
-                    args.putString("userName", userName);
-                    args.putString("userEmail", userEmail);
-                    fragment.setArguments(args);
-                    selected = fragment;
+                    selected = createBarberHome();
                     title = "Barber Home";
                 } else if (id == R.id.nav_appointments) {
                     selected = new BarberAppointmentsFragment();
@@ -199,33 +224,39 @@ public class RoleMainActivity extends AppCompatActivity {
         });
     }
 
-    private Fragment getStartFragment(User.Role role) {
-        if (role == User.Role.CUSTOMER) return createCustomerHome();
-        if (role == User.Role.BARBER) {
-            BarberDashboardFragment fragment = new BarberDashboardFragment();
-            Bundle args = new Bundle();
-            args.putString("userName", userName);
-            args.putString("userEmail", userEmail);
-            fragment.setArguments(args);
-            return fragment;
-        }
+    @NonNull
+    private Fragment getStartFragment(@NonNull Role role) {
+        if (role == Role.CUSTOMER) return createCustomerHome();
+        if (role == Role.BARBER) return createBarberHome();
         return new AdminDashboardFragment();
     }
 
-    private void selectStartMenuItem(User.Role role) {
-        if (role == User.Role.CUSTOMER) bottomNav.setSelectedItemId(R.id.nav_home);
-        else if (role == User.Role.BARBER) bottomNav.setSelectedItemId(R.id.nav_home);
+    private void selectStartMenuItem(@NonNull Role role) {
+        if (role == Role.CUSTOMER) bottomNav.setSelectedItemId(R.id.nav_home);
+        else if (role == Role.BARBER) bottomNav.setSelectedItemId(R.id.nav_home);
         else bottomNav.setSelectedItemId(R.id.admin_nav_dashboard);
     }
 
-    private String getStartTitle(User.Role role) {
-        if (role == User.Role.CUSTOMER) return "Home";
-        if (role == User.Role.BARBER) return "Barber Home";
+    @NonNull
+    private String getStartTitle(@NonNull Role role) {
+        if (role == Role.CUSTOMER) return "Home";
+        if (role == Role.BARBER) return "Barber Home";
         return "Admin Home";
     }
 
+    @NonNull
     private Fragment createCustomerHome() {
         HomeCustomerFragment fragment = new HomeCustomerFragment();
+        Bundle args = new Bundle();
+        args.putString("userName", userName);
+        args.putString("userEmail", userEmail);
+        fragment.setArguments(args);
+        return fragment;
+    }
+
+    @NonNull
+    private Fragment createBarberHome() {
+        BarberDashboardFragment fragment = new BarberDashboardFragment();
         Bundle args = new Bundle();
         args.putString("userName", userName);
         args.putString("userEmail", userEmail);

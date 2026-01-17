@@ -2,38 +2,19 @@ package com.example.barber4u.models;
 
 import androidx.annotation.NonNull;
 
-/**
- * מודל משתמש עבור Firebase
- * נשמר בקולקציה: users/{uid}
- */
-public class User {
+public abstract class User {
 
-    // תפקידי משתמש במערכת
-    public enum Role {
-        CUSTOMER,
-        BARBER,
-        ADMIN
-    }
+    protected String uid;
+    protected String name;
+    protected String email;
 
-    private String uid;
-    private String name;
-    private String email;
-    private Role role;
+    // חובה ל-Firebase
+    public User() {}
 
-    /**
-     * בנאי ריק – חובה ל-Firebase
-     */
-    public User() {
-    }
-
-    /**
-     * בנאי מלא
-     */
-    public User(String uid, String name, String email, Role role) {
+    public User(String uid, String name, String email) {
         this.uid = uid;
         this.name = name;
         this.email = email;
-        this.role = role;
     }
 
     // ===== Getters & Setters =====
@@ -62,22 +43,13 @@ public class User {
         this.email = email;
     }
 
-    public Role getRole() {
-        return role;
-    }
-
-    public void setRole(Role role) {
-        this.role = role;
-    }
-
     @NonNull
     @Override
     public String toString() {
-        return "User{" +
+        return getClass().getSimpleName() + "{" +
                 "uid='" + uid + '\'' +
                 ", name='" + name + '\'' +
                 ", email='" + email + '\'' +
-                ", role=" + role +
                 '}';
     }
 }
