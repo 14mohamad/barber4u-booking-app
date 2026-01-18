@@ -23,5 +23,14 @@
             android:layout_height="wrap_content"
             android:text="הוספת תמונה לגלריה" />
 
+        <TextView
+            android:id="@+id/tvBarberRating"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="Rating: --"
+            android:textSize="22sp"
+            android:textStyle="bold"
+            android:gravity="center" />
+
     </LinearLayout>
 </ScrollView>

@@ -25,6 +25,7 @@ import com.google.firebase.messaging.FirebaseMessaging;
 
 import java.util.HashMap;
 import java.util.Map;
+import java.util.Objects;
 
 public class LoginActivity extends AppCompatActivity {
 
@@ -90,7 +91,7 @@ public class LoginActivity extends AppCompatActivity {
             return;
         }
 
-        String uid = task.getResult().getUser().getUid();
+        String uid = Objects.requireNonNull(task.getResult().getUser()).getUid();
         saveFcmTokenForUser(uid);
         fetchUserAndGo(uid);
     }
