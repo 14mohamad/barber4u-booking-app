@@ -17,6 +17,11 @@ import com.google.firebase.firestore.DocumentSnapshot;
 import com.google.firebase.firestore.FirebaseFirestore;
 import com.google.firebase.firestore.QuerySnapshot;
 
+import java.text.ParseException;
+import java.text.SimpleDateFormat;
+import java.util.Calendar;
+import java.util.Date;
+import java.util.Locale;
 import com.google.firebase.messaging.FirebaseMessaging;
 
 public class HomeCustomerFragment extends Fragment {
@@ -76,6 +81,26 @@ public class HomeCustomerFragment extends Fragment {
 
         loadAppointmentsForUser();
     }
+    private boolean isTodayOrFuture(String dateStr) {
+        if (dateStr == null || dateStr.trim().isEmpty()) return false;
+
+        try {
+            SimpleDateFormat sdf = new SimpleDateFormat("dd/MM/yyyy", Locale.getDefault());
+            Date apptDate = sdf.parse(dateStr.trim());
+            if (apptDate == null) return false;
+
+            Calendar today = Calendar.getInstance();
+            today.set(Calendar.HOUR_OF_DAY, 0);
+            today.set(Calendar.MINUTE, 0);
+            today.set(Calendar.SECOND, 0);
+            today.set(Calendar.MILLISECOND, 0);
+
+            return !apptDate.before(today.getTime());
+        } catch (ParseException e) {
+            return false;
+        }
+    }
+
 
     private void loadAppointmentsForUser() {
         if (auth.getCurrentUser() == null) {
@@ -98,7 +123,6 @@ public class HomeCustomerFragment extends Fragment {
 
                     QuerySnapshot snapshot = task.getResult();
                     if (snapshot == null || snapshot.isEmpty()) {
-                        // אין תורים – נשאיר 0 ו־"-"
                         tvStatTotal.setText("0");
                         tvStatUpcoming.setText("0");
                         tvStatCanceled.setText("0");
@@ -109,28 +133,49 @@ public class HomeCustomerFragment extends Fragment {
                         return;
                     }
 
-                    int total = snapshot.size();
+                    int total = 0;
                     int upcoming = 0;
                     int canceled = 0;
 
-                    // "התור הבא" – פשוט ניקח את המסמך הראשון במצב PENDING/APPROVED
                     DocumentSnapshot nextDoc = null;
 
                     for (DocumentSnapshot doc : snapshot.getDocuments()) {
+                        String date = doc.getString("date");
+
+                        // ✅ Skip past appointments (only today/future)
+                        if (!isTodayOrFuture(date)) {
+                            continue;
+                        }
+
+                        total++;
+
                         String status = doc.getString("status");
                         if (status == null) status = "";
 
                         if (status.equalsIgnoreCase("CANCELED")) {
                             canceled++;
-                        } else {
+                        } else if (status.equalsIgnoreCase("APPROVED")){
                             upcoming++;
                         }
 
+                        // ✅ "Next appointment" among future/today only
                         if (nextDoc == null &&
                                 (status.equalsIgnoreCase("PENDING")
                                         || status.equalsIgnoreCase("APPROVED"))) {
                             nextDoc = doc;
                         }
+                    }
+
+                    // ✅ If everything was in the past, show empty stats
+                    if (total == 0) {
+                        tvStatTotal.setText("0");
+                        tvStatUpcoming.setText("0");
+                        tvStatCanceled.setText("0");
+
+                        tvNextBarber.setText("Barber: -");
+                        tvNextDate.setText("Date: -");
+                        tvNextStatus.setText("Status: -");
+                        return;
                     }
 
                     tvStatTotal.setText(String.valueOf(total));
@@ -139,12 +184,12 @@ public class HomeCustomerFragment extends Fragment {
 
                     if (nextDoc != null) {
                         String barberName = nextDoc.getString("barberName");
-                        String date = nextDoc.getString("date");
+                        String d = nextDoc.getString("date");
                         String time = nextDoc.getString("time");
                         String status = nextDoc.getString("status");
 
                         tvNextBarber.setText("Barber: " + (barberName != null ? barberName : "-"));
-                        tvNextDate.setText("Date: " + (date != null ? date : "-")
+                        tvNextDate.setText("Date: " + (d != null ? d : "-")
                                 + (time != null ? " " + time : ""));
                         tvNextStatus.setText("Status: " + (status != null ? status : "-"));
                     } else {

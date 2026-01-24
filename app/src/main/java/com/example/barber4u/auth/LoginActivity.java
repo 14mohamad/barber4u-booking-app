@@ -18,7 +18,6 @@ import com.example.barber4u.data.repositories.UserRepository;
 import com.example.barber4u.main.RoleMainActivity;
 import com.google.android.gms.tasks.Task;
 import com.google.firebase.auth.AuthResult;
-
 import com.google.firebase.firestore.FirebaseFirestore;
 import com.google.firebase.firestore.SetOptions;
 import com.google.firebase.messaging.FirebaseMessaging;
@@ -34,6 +33,7 @@ public class LoginActivity extends AppCompatActivity {
     private ProgressBar progressBarLogin;
 
     private final UserRepository userRepo = new UserRepository();
+    private final FirebaseFirestore db = FirebaseFirestore.getInstance();
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
@@ -92,8 +92,9 @@ public class LoginActivity extends AppCompatActivity {
         }
 
         String uid = Objects.requireNonNull(task.getResult().getUser()).getUid();
-        saveFcmTokenForUser(uid);
-        fetchUserAndGo(uid);
+
+        // ✅ Save token first (best effort), then continue
+        saveFcmTokenForUser(uid, () -> fetchUserAndGo(uid));
     }
 
     private void fetchUserAndGo(String uid) {
@@ -128,18 +129,42 @@ public class LoginActivity extends AppCompatActivity {
         btnLogin.setEnabled(!isLoading);
         btnGoToRegister.setEnabled(!isLoading);
     }
-    private void saveFcmTokenForUser(String uid) {
+
+    // -------------------------
+    // FCM token saving (best effort)
+    // -------------------------
+
+    private interface DoneCallback {
+        void run();
+    }
+
+    private void saveFcmTokenForUser(@NonNull String uid, @NonNull DoneCallback done) {
         FirebaseMessaging.getInstance().getToken()
                 .addOnSuccessListener(token -> {
-                    if (token == null || token.trim().isEmpty()) return;
+                    if (token == null || token.trim().isEmpty()) {
+                        done.run();
+                        return;
+                    }
 
                     Map<String, Object> data = new HashMap<>();
                     data.put("fcmToken", token);
 
-                    FirebaseFirestore.getInstance()
-                            .collection("users")
+                    // Try update first (fails if doc doesn't exist)
+                    db.collection("users")
                             .document(uid)
-                            .set(data, SetOptions.merge());
+                            .update(data)
+                            .addOnSuccessListener(unused -> done.run())
+                            .addOnFailureListener(err -> {
+                                // Fallback: create/merge if doc doesn't exist
+                                db.collection("users")
+                                        .document(uid)
+                                        .set(data, SetOptions.merge())
+                                        .addOnCompleteListener(t -> done.run());
+                            });
+                })
+                .addOnFailureListener(e -> {
+                    // token fetch failed - still allow app to continue
+                    done.run();
                 });
     }
 }
