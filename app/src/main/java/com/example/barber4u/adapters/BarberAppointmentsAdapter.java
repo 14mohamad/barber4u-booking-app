@@ -86,7 +86,7 @@ public class BarberAppointmentsAdapter
             holder.btnApprove.setOnClickListener(v -> listener.onApprove(appt));
             holder.btnCancel.setOnClickListener(v -> listener.onCancel(appt));
 
-        } else if (status.equalsIgnoreCase("APPOINTMENT_SCHEDULED")) {
+        } else if (status.equalsIgnoreCase("APPROVED")) {
             // Scheduled: Done (+ optional Cancel)
             holder.btnDone.setVisibility(View.VISIBLE);
             holder.btnDone.setText("Done");

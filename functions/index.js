@@ -103,10 +103,6 @@ exports.notifyAppointmentDone = onDocumentUpdated(
 
       const push = {
         token: token,
-        notification: {
-          title: "Appointment done",
-          body: pushBody,
-        },
         data: {
           type: "RATE_REQUEST",
           appointmentId: appointmentId,
