@@ -1,3 +1,6 @@
+// ================================
+// AppointmentsFragment.java  (Customer)
+// ================================
 package com.example.barber4u.customer;
 
 import android.location.Address;
@@ -22,6 +25,7 @@ import com.google.firebase.firestore.DocumentSnapshot;
 import com.google.firebase.firestore.FirebaseFirestore;
 import com.google.firebase.firestore.GeoPoint;
 import com.google.firebase.firestore.ListenerRegistration;
+import com.google.firebase.firestore.Query;
 
 import java.io.IOException;
 import java.util.ArrayList;
@@ -124,10 +128,12 @@ public class AppointmentsFragment extends Fragment {
         setLoading(true);
         showEmpty(false);
 
+        // ✅ חדש למעלה לפי createdAt
         appointmentsListener = db.collection("appointments")
                 .whereEqualTo("userId", uid)
+                .orderBy("createdAt", Query.Direction.DESCENDING)
                 .addSnapshotListener((snapshot, e) -> {
-                    if (!isAdded()) return; // <-- CRITICAL: fragment may be detached
+                    if (!isAdded()) return;
 
                     setLoading(false);
 
@@ -177,7 +183,6 @@ public class AppointmentsFragment extends Fragment {
                             if (cached != null && !cached.isEmpty()) {
                                 item.branchAddressEn = cached;
                             } else {
-                                // fetch+geocode async, update adapter row later
                                 fetchBranchAddressEnglish(branchId, appointmentId);
                             }
                         }
@@ -207,10 +212,6 @@ public class AppointmentsFragment extends Fragment {
         if (recyclerView != null) recyclerView.setVisibility(show ? View.GONE : View.VISIBLE);
     }
 
-    /**
-     * Fetch branch GeoPoint from Firestore, reverse-geocode to ENGLISH address, cache + update list row.
-     * IMPORTANT: No requireContext() inside background thread.
-     */
     private void fetchBranchAddressEnglish(@NonNull String branchId, @NonNull String appointmentId) {
         db.collection("branches")
                 .document(branchId)
@@ -218,17 +219,15 @@ public class AppointmentsFragment extends Fragment {
                 .addOnSuccessListener(branchDoc -> {
                     if (!branchDoc.exists()) return;
 
-                    // Try common field names; adjust to your real field
                     GeoPoint gp = branchDoc.getGeoPoint("location");
                     if (gp == null) gp = branchDoc.getGeoPoint("geoPoint");
-                    if (gp == null) gp = branchDoc.getGeoPoint("address"); // if you literally named it "address"
+                    if (gp == null) gp = branchDoc.getGeoPoint("address");
 
                     if (gp == null) return;
 
                     final double lat = gp.getLatitude();
                     final double lng = gp.getLongitude();
 
-                    // Capture a SAFE context reference for Geocoder (must be on main thread)
                     final android.content.Context ctx = getContext();
                     if (ctx == null) return;
 
@@ -241,7 +240,6 @@ public class AppointmentsFragment extends Fragment {
 
                         branchAddressCache.put(branchId, addressEn);
 
-                        // Back to UI thread safely
                         if (isAdded() && getActivity() != null) {
                             String finalAddressEn = addressEn;
                             getActivity().runOnUiThread(() -> {
@@ -253,9 +251,6 @@ public class AppointmentsFragment extends Fragment {
                 });
     }
 
-    /**
-     * Best effort English address.
-     */
     private String reverseGeocodeEnglish(@NonNull android.content.Context ctx, double lat, double lng) {
         try {
             Geocoder geocoder = new Geocoder(ctx, Locale.ENGLISH);
@@ -284,9 +279,6 @@ public class AppointmentsFragment extends Fragment {
         return s == null ? "" : s;
     }
 
-    // ----------------------------
-    // View-model
-    // ----------------------------
     static class CustomerAppointmentItem {
         final String appointmentId;
         final String branchName;
@@ -296,7 +288,7 @@ public class AppointmentsFragment extends Fragment {
         final String status;
         final String branchId;
 
-        String branchAddressEn = ""; // filled async
+        String branchAddressEn = "";
 
         CustomerAppointmentItem(String appointmentId,
                                 String branchName,
@@ -337,9 +329,6 @@ public class AppointmentsFragment extends Fragment {
 
 
 
-    // ----------------------------
-    // Inline RecyclerView Adapter
-    // ----------------------------
     static class CustomerAppointmentsAdapter extends RecyclerView.Adapter<CustomerAppointmentsAdapter.VH> {
 
         private final List<CustomerAppointmentItem> items = new ArrayList<>();

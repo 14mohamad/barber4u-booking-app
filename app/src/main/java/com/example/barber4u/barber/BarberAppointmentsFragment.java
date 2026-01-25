@@ -1,3 +1,6 @@
+// ==================================
+// BarberAppointmentsFragment.java  (Barber)
+// ==================================
 package com.example.barber4u.barber;
 
 import android.os.Bundle;
@@ -17,10 +20,12 @@ import androidx.recyclerview.widget.RecyclerView;
 import com.example.barber4u.R;
 import com.example.barber4u.adapters.BarberAppointmentsAdapter;
 import com.example.barber4u.models.Appointment;
+import com.google.firebase.Timestamp;
 import com.google.firebase.auth.FirebaseAuth;
 import com.google.firebase.firestore.DocumentSnapshot;
 import com.google.firebase.firestore.FirebaseFirestore;
 import com.google.firebase.firestore.ListenerRegistration;
+import com.google.firebase.firestore.Query;
 
 import java.util.ArrayList;
 import java.util.List;
@@ -49,17 +54,25 @@ public class BarberAppointmentsFragment extends Fragment {
     ) {
         return inflater.inflate(R.layout.fragment_barber_appointments, container, false);
     }
+
     private void updateStatus(@Nullable String appointmentId, @NonNull String newStatus) {
         if (appointmentId == null || appointmentId.isEmpty()) return;
 
+        // ✅ מעדכנים גם updatedAt (מועיל לסידור עתידי/לוגיקה)
         db.collection("appointments")
                 .document(appointmentId)
-                .update("status", newStatus)
+                .update(
+                        "status", newStatus,
+                        "updatedAt", Timestamp.now()
+                )
                 .addOnFailureListener(e -> {
                     if (!isAdded()) return;
-                    Toast.makeText(getContext(), "Failed to update status: " + e.getMessage(), Toast.LENGTH_SHORT).show();
+                    Toast.makeText(getContext(),
+                            "Failed to update status: " + e.getMessage(),
+                            Toast.LENGTH_SHORT).show();
                 });
     }
+
     @Override
     public void onViewCreated(@NonNull View view, @Nullable Bundle savedInstanceState) {
         super.onViewCreated(view, savedInstanceState);
@@ -86,11 +99,10 @@ public class BarberAppointmentsFragment extends Fragment {
             @Override
             public void onDone(@NonNull Appointment appt) {
                 updateStatus(appt.getId(), "DONE");
-                // optional: remove from UI immediately (Firestore listener will also refresh)
                 adapter.removeById(appt.getId());
             }
         });
-        recyclerView.setAdapter(adapter);
+
         recyclerView.setAdapter(adapter);
 
         showEmpty(true);
@@ -129,15 +141,17 @@ public class BarberAppointmentsFragment extends Fragment {
 
         String barberUid = auth.getCurrentUser().getUid();
 
-        stopListeningAppointments(); // avoid duplicate listeners
+        stopListeningAppointments();
 
         setLoading(true);
         showEmpty(false);
 
+        // ✅ חדש למעלה לפי createdAt
         appointmentsListener = db.collection("appointments")
                 .whereEqualTo("barberId", barberUid)
+                .orderBy("createdAt", Query.Direction.DESCENDING)
                 .addSnapshotListener((snapshot, e) -> {
-                    if (!isAdded()) return; // <-- CRITICAL FIX
+                    if (!isAdded()) return;
 
                     setLoading(false);
 

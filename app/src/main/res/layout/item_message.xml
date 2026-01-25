@@ -17,7 +17,7 @@
             android:id="@+id/tvMessageText"
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            android:text="Fresh cut! You’re looking sharp 🔥 Please rate your barber."
+            android:text="Message text"
             android:textSize="16sp" />
 
         <LinearLayout
@@ -32,14 +32,14 @@
                 style="?attr/materialButtonOutlinedStyle"
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
-                android:text="Do Not" />
+                android:text="Dismiss" />
 
             <com.google.android.material.button.MaterialButton
-                android:id="@+id/btnRateNow"
+                android:id="@+id/btnPrimary"
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
                 android:layout_marginStart="10dp"
-                android:text="Rate now" />
+                android:text="Open" />
 
         </LinearLayout>
 

@@ -18,6 +18,7 @@ import androidx.recyclerview.widget.RecyclerView;
 
 import com.example.barber4u.R;
 import com.example.barber4u.adapters.MessagesAdapter;
+import com.example.barber4u.main.RoleMainActivity;
 import com.google.firebase.auth.FirebaseAuth;
 import com.google.firebase.auth.FirebaseUser;
 import com.google.firebase.firestore.DocumentReference;
@@ -25,6 +26,7 @@ import com.google.firebase.firestore.FieldValue;
 import com.google.firebase.firestore.FirebaseFirestore;
 import com.google.firebase.firestore.ListenerRegistration;
 import com.google.firebase.firestore.Query;
+import com.google.firebase.firestore.QuerySnapshot;
 import com.google.firebase.firestore.WriteBatch;
 
 import java.util.ArrayList;
@@ -33,19 +35,14 @@ import java.util.Map;
 
 public class MessagesFragment extends Fragment implements MessagesAdapter.Listener {
 
-    // UI
     private RecyclerView recyclerMessages;
     private ProgressBar progressMessages;
     private TextView tvNoMessages;
 
-    // Firebase
     private FirebaseAuth auth;
     private FirebaseFirestore db;
 
-    // Adapter
     private MessagesAdapter adapter;
-
-    // Firestore listener (so we can remove it and avoid "not attached" crashes)
     private ListenerRegistration messagesListener;
 
     public MessagesFragment() {}
@@ -88,7 +85,6 @@ public class MessagesFragment extends Fragment implements MessagesAdapter.Listen
     @Override
     public void onStop() {
         super.onStop();
-        // ✅ prevent callbacks after fragment is detached
         if (messagesListener != null) {
             messagesListener.remove();
             messagesListener = null;
@@ -137,19 +133,51 @@ public class MessagesFragment extends Fragment implements MessagesAdapter.Listen
                 String appointmentId = doc.getString("appointmentId");
                 String barberId = doc.getString("barberId");
                 String barberName = doc.getString("barberName");
+                String type = doc.getString("type");
+                Boolean seen = doc.getBoolean("seen");
 
                 items.add(new MessageItem(
                         doc.getId(),
                         text == null ? "" : text,
                         appointmentId == null ? "" : appointmentId,
                         barberId == null ? "" : barberId,
-                        barberName == null ? "" : barberName
+                        barberName == null ? "" : barberName,
+                        type == null ? "" : type,
+                        seen != null && seen
                 ));
             });
 
             adapter.setItems(items);
             showEmpty(items.isEmpty());
+
+            // ✅ mark all unseen as seen when user opens Messages screen
+            markAllAsSeen(snapshot);
         });
+    }
+
+    private void markAllAsSeen(@NonNull QuerySnapshot snapshot) {
+        FirebaseUser user = auth.getCurrentUser();
+        if (user == null) return;
+
+        boolean hasUnseen = snapshot.getDocuments().stream()
+                .anyMatch(d -> {
+                    Boolean s = d.getBoolean("seen");
+                    return s == null || !s;
+                });
+
+        if (!hasUnseen) return;
+
+        WriteBatch batch = db.batch();
+        snapshot.getDocuments().forEach(doc -> {
+            Boolean s = doc.getBoolean("seen");
+            if (s == null || !s) {
+                batch.update(doc.getReference(), Map.of(
+                        "seen", true,
+                        "seenAt", FieldValue.serverTimestamp()
+                ));
+            }
+        });
+        batch.commit();
     }
 
     private void setLoading(boolean isLoading) {
@@ -178,9 +206,18 @@ public class MessagesFragment extends Fragment implements MessagesAdapter.Listen
     }
 
     @Override
-    public void onRateNow(@NonNull MessageItem msg) {
-        showRatingDialog(msg);
+    public void onPrimary(@NonNull MessageItem item) {
+        if ("RATE_REQUEST".equals(item.type)) {
+            showRatingDialog(item);
+            return;
+        }
+
+        // Appointment messages -> go to appointments tab
+        if (getActivity() instanceof RoleMainActivity) {
+            ((RoleMainActivity) getActivity()).navigateToAppointmentsTab();
+        }
     }
+
     private void showRatingDialog(@NonNull MessageItem msg) {
         View view = LayoutInflater.from(requireContext())
                 .inflate(R.layout.dialog_rating, null);
