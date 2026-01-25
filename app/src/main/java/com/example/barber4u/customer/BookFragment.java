@@ -1,3 +1,6 @@
+// ================================
+// BookFragment.java  (Customer Booking)
+// ================================
 package com.example.barber4u.customer;
 
 import android.app.DatePickerDialog;
@@ -43,6 +46,10 @@ import java.util.Locale;
 import java.util.Map;
 
 public class BookFragment extends Fragment {
+
+    // ✅ שעות עבודה
+    private static final int WORK_START_HOUR = 10; // 10:00
+    private static final int WORK_END_HOUR = 20;   // 20:00 (רק 20:00 מותר)
 
     // UI
     private TextView tvSelectedBranch;
@@ -91,7 +98,6 @@ public class BookFragment extends Fragment {
         auth = FirebaseAuth.getInstance();
         db = FirebaseFirestore.getInstance();
 
-        // Bind UI (matches the rewritten fragment_book.xml)
         tvSelectedBranch = view.findViewById(R.id.tvSelectedBranch);
         btnChooseBranch = view.findViewById(R.id.btnChooseBranch);
 
@@ -110,10 +116,13 @@ public class BookFragment extends Fragment {
         setupButtons();
         setupBranchResultListener();
 
-        // initial state
         tvSelectedBranch.setText("No branch selected");
         spBarber.setEnabled(false);
         btnBook.setEnabled(false);
+
+        // מומלץ: למנוע הקלדה ידנית כדי לא לעקוף שעות
+        etTime.setKeyListener(null);
+        etDate.setKeyListener(null);
     }
 
     private void setupButtons() {
@@ -139,14 +148,12 @@ public class BookFragment extends Fragment {
 
                     tvSelectedBranch.setText(selectedBranchName != null ? selectedBranchName : "Selected");
 
-                    // Reset dependent UI/data
                     barberList.clear();
                     barberAdapter.notifyDataSetChanged();
                     lastLoadedBarberId = null;
                     clearGallery();
 
                     spBarber.setEnabled(true);
-
                     loadBarbersForBranch(selectedBranchId);
                 }
         );
@@ -187,7 +194,9 @@ public class BookFragment extends Fragment {
     }
 
     private void setupGallery() {
-        rvGallery.setLayoutManager(new LinearLayoutManager(requireContext(), LinearLayoutManager.HORIZONTAL, false));
+        rvGallery.setLayoutManager(
+                new LinearLayoutManager(requireContext(), LinearLayoutManager.HORIZONTAL, false)
+        );
         galleryAdapter = new GalleryAdapter(item -> selectedGalleryItem = item);
         rvGallery.setAdapter(galleryAdapter);
         clearGallery();
@@ -227,7 +236,9 @@ public class BookFragment extends Fragment {
                     setLoading(false);
 
                     if (barberList.isEmpty()) {
-                        Toast.makeText(requireContext(), "No barbers in this branch", Toast.LENGTH_LONG).show();
+                        Toast.makeText(requireContext(),
+                                "No barbers in this branch",
+                                Toast.LENGTH_LONG).show();
                     }
 
                     updateBookEnabled();
@@ -299,19 +310,17 @@ public class BookFragment extends Fragment {
                 year, month, day
         );
 
-        // ✅ Prevent selecting past dates (today and forward only)
         Calendar minDate = Calendar.getInstance();
         minDate.set(Calendar.HOUR_OF_DAY, 0);
         minDate.set(Calendar.MINUTE, 0);
         minDate.set(Calendar.SECOND, 0);
         minDate.set(Calendar.MILLISECOND, 0);
-
         dialog.getDatePicker().setMinDate(minDate.getTimeInMillis());
 
         dialog.show();
     }
 
-
+    // ✅ הגבלת שעות עבודה
     private void openTimePicker() {
         Calendar c = Calendar.getInstance();
         int hour = c.get(Calendar.HOUR_OF_DAY);
@@ -320,6 +329,21 @@ public class BookFragment extends Fragment {
         TimePickerDialog dialog = new TimePickerDialog(
                 requireContext(),
                 (TimePicker timePicker, int h, int m) -> {
+
+                    boolean valid =
+                            (h > WORK_START_HOUR && h < WORK_END_HOUR)
+                                    || (h == WORK_START_HOUR)
+                                    || (h == WORK_END_HOUR && m == 0);
+
+                    if (!valid) {
+                        Toast.makeText(
+                                requireContext(),
+                                "אפשר לבחור שעה רק בין 10:00 ל-20:00",
+                                Toast.LENGTH_LONG
+                        ).show();
+                        return;
+                    }
+
                     String text = String.format(Locale.getDefault(), "%02d:%02d", h, m);
                     etTime.setText(text);
                     updateBookEnabled();
@@ -335,7 +359,8 @@ public class BookFragment extends Fragment {
         boolean hasDate = !TextUtils.isEmpty(etDate.getText().toString().trim());
         boolean hasTime = !TextUtils.isEmpty(etTime.getText().toString().trim());
 
-        btnBook.setEnabled(hasBranch && hasBarber && hasDate && hasTime && progressBook.getVisibility() != View.VISIBLE);
+        btnBook.setEnabled(hasBranch && hasBarber && hasDate && hasTime
+                && progressBook.getVisibility() != View.VISIBLE);
     }
 
     private void setLoading(boolean isLoading) {
@@ -378,6 +403,27 @@ public class BookFragment extends Fragment {
             etTime.setError("Required");
             etTime.requestFocus();
             return;
+        }
+
+        // ✅ בדיקה נוספת (אבטחה נגד עקיפה)
+        String[] parts = time.split(":");
+        if (parts.length == 2) {
+            try {
+                int h = Integer.parseInt(parts[0]);
+                int m = Integer.parseInt(parts[1]);
+
+                boolean valid =
+                        (h > WORK_START_HOUR && h < WORK_END_HOUR)
+                                || (h == WORK_START_HOUR)
+                                || (h == WORK_END_HOUR && m == 0);
+
+                if (!valid) {
+                    Toast.makeText(requireContext(),
+                            "השעה חייבת להיות בין 10:00 ל-20:00",
+                            Toast.LENGTH_LONG).show();
+                    return;
+                }
+            } catch (NumberFormatException ignored) {}
         }
 
         setLoading(true);

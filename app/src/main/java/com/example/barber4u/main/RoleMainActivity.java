@@ -7,6 +7,7 @@ import android.view.MenuInflater;
 import android.widget.Toast;
 
 import androidx.annotation.NonNull;
+import androidx.annotation.Nullable;
 import androidx.appcompat.app.AppCompatActivity;
 import androidx.fragment.app.Fragment;
 
@@ -24,9 +25,12 @@ import com.example.barber4u.customer.HomeCustomerFragment;
 import com.example.barber4u.data.firebase.FirebaseProvider;
 import com.example.barber4u.data.repositories.UserRepository;
 import com.google.android.material.appbar.MaterialToolbar;
+import com.google.android.material.badge.BadgeDrawable;
 import com.google.android.material.bottomnavigation.BottomNavigationView;
 import com.google.firebase.auth.FirebaseUser;
 import com.google.firebase.firestore.DocumentSnapshot;
+import com.google.firebase.firestore.ListenerRegistration;
+import com.google.firebase.firestore.Query;
 
 public class RoleMainActivity extends AppCompatActivity {
 
@@ -41,8 +45,9 @@ public class RoleMainActivity extends AppCompatActivity {
     private String userName;
     private String userEmail;
 
-    // Do NOT assume a role before reading from Firestore
     private Role role = null;
+
+    private ListenerRegistration badgeListener;
 
     private enum Role {
         CUSTOMER, BARBER, ADMIN
@@ -70,6 +75,15 @@ public class RoleMainActivity extends AppCompatActivity {
         }
     }
 
+    @Override
+    protected void onStop() {
+        super.onStop();
+        if (badgeListener != null) {
+            badgeListener.remove();
+            badgeListener = null;
+        }
+    }
+
     private void loadRoleAndSetupUI(Bundle savedInstanceState) {
         FirebaseUser current = FirebaseProvider.auth().getCurrentUser();
         if (current == null) {
@@ -82,28 +96,24 @@ public class RoleMainActivity extends AppCompatActivity {
         userRepo.getUserById(uid, new UserRepository.UserCallback() {
             @Override
             public void onSuccess(@NonNull DocumentSnapshot doc) {
-                // Activity may already be finishing (logout/back)
                 if (isFinishing() || isDestroyed()) return;
 
                 role = parseRoleFromDoc(doc);
 
-                // fallback if LoginActivity extras missing
                 if (userName == null) userName = doc.getString("name");
                 if (userEmail == null) userEmail = doc.getString("email");
 
                 setupBottomNavMenu(role);
                 setupNavigationListener(role);
 
-                // First time only: show the start screen
+                // ✅ Badge listener (messages unseen)
+                startMessagesBadgeListener(uid, role);
+
                 if (savedInstanceState == null) {
                     Fragment start = getStartFragment(role);
                     replaceFragment(start);
                     selectStartMenuItem(role);
                     topAppBar.setTitle(getStartTitle(role));
-                } else {
-                    // If recreating, keep whatever fragment is already there,
-                    // but ensure the menu is correct.
-                    // Title will remain as-is.
                 }
             }
 
@@ -118,9 +128,6 @@ public class RoleMainActivity extends AppCompatActivity {
         });
     }
 
-    /**
-     * Does NOT depend on com.example.barber4u.models.User (so you can make it abstract safely).
-     */
     @NonNull
     private Role parseRoleFromDoc(@NonNull DocumentSnapshot doc) {
         String r = doc.getString("role");
@@ -156,7 +163,6 @@ public class RoleMainActivity extends AppCompatActivity {
     }
 
     private void setupNavigationListener(@NonNull Role role) {
-        // Important: replace any previous listener (avoid “multiple callbacks” after recreations)
         bottomNav.setOnItemSelectedListener(null);
 
         bottomNav.setOnItemSelectedListener(item -> {
@@ -269,5 +275,42 @@ public class RoleMainActivity extends AppCompatActivity {
                 .beginTransaction()
                 .replace(R.id.roleContainer, fragment)
                 .commit();
+    }
+
+    // ✅ מאפשר ל־MessagesFragment להעביר למסך תורים
+    public void navigateToAppointmentsTab() {
+        if (role == Role.CUSTOMER || role == Role.BARBER) {
+            bottomNav.setSelectedItemId(R.id.nav_appointments);
+        }
+    }
+
+    // ✅ Badge שמראה כמה הודעות לא נקראו
+    private void startMessagesBadgeListener(@NonNull String uid, @NonNull Role role) {
+        int messagesMenuId = (role == Role.ADMIN) ? R.id.admin_nav_messages : R.id.nav_messages;
+
+        Query q = FirebaseProvider.db()
+                .collection("users")
+                .document(uid)
+                .collection("messages")
+                .whereEqualTo("seen", false);
+
+        if (badgeListener != null) {
+            badgeListener.remove();
+            badgeListener = null;
+        }
+
+        badgeListener = q.addSnapshotListener((snap, e) -> {
+            if (isFinishing() || isDestroyed()) return;
+
+            int count = (snap == null) ? 0 : snap.size();
+
+            BadgeDrawable badge = bottomNav.getOrCreateBadge(messagesMenuId);
+            if (count <= 0) {
+                badge.setVisible(false);
+            } else {
+                badge.setVisible(true);
+                badge.setNumber(Math.min(count, 99));
+            }
+        });
     }
 }
