@@ -17,6 +17,9 @@ import com.example.barber4u.auth.LoginActivity;
 import com.google.android.material.button.MaterialButton;
 import com.google.android.material.switchmaterial.SwitchMaterial;
 import com.google.firebase.auth.FirebaseAuth;
+import com.google.firebase.firestore.FieldValue;
+import com.google.firebase.firestore.FirebaseFirestore;
+import com.google.firebase.messaging.FirebaseMessaging;
 
 public class SettingsFragment extends Fragment {
 
@@ -33,6 +36,13 @@ public class SettingsFragment extends Fragment {
             @Nullable Bundle savedInstanceState
     ) {
         return inflater.inflate(R.layout.fragment_settings, container, false);
+    }
+    private void performLogout() {
+        FirebaseAuth.getInstance().signOut();
+
+        Intent i = new Intent(requireContext(), LoginActivity.class);
+        i.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK | Intent.FLAG_ACTIVITY_CLEAR_TASK);
+        startActivity(i);
     }
 
     @Override
@@ -55,10 +65,34 @@ public class SettingsFragment extends Fragment {
         });
 
         btnLogout.setOnClickListener(v -> {
-            FirebaseAuth.getInstance().signOut();
-            Intent i = new Intent(requireContext(), LoginActivity.class);
-            i.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK | Intent.FLAG_ACTIVITY_CLEAR_TASK);
-            startActivity(i);
+            String uid = FirebaseAuth.getInstance().getUid();
+
+            if (uid == null) {
+                performLogout();
+                return;
+            }
+
+            FirebaseMessaging.getInstance().getToken()
+                    .addOnSuccessListener(token -> {
+                        if (token != null && !token.trim().isEmpty()) {
+                            FirebaseFirestore db = FirebaseFirestore.getInstance();
+
+                            // 1️⃣ Remove token from subcollection
+                            db.collection("users")
+                                    .document(uid)
+                                    .collection("fcmTokens")
+                                    .document(token)
+                                    .delete();
+
+                            // 2️⃣ Optional: remove legacy field
+                            db.collection("users")
+                                    .document(uid)
+                                    .update("fcmToken", FieldValue.delete());
+                        }
+
+                        performLogout();
+                    })
+                    .addOnFailureListener(e -> performLogout());
         });
     }
 }

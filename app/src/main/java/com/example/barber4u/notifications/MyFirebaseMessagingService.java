@@ -58,26 +58,30 @@ public class MyFirebaseMessagingService extends FirebaseMessagingService {
         // Your backend currently sends type: "RATE_REQUEST"
         if ("RATE_REQUEST".equals(type)) {
             String barberName = safe(data.get("barberName"));
-            showNotification(
-                    "Rate your haircut",
-                    barberName.isEmpty()
-                            ? "Your appointment is done. Tap to rate."
-                            : "Your appointment with " + barberName + " is done. Tap to rate.",
-                    data
-            );
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.GINGERBREAD) {
+                showNotification(
+                        "Rate your haircut",
+                        barberName.isEmpty()
+                                ? "Your appointment is done. Tap to rate."
+                                : "Your appointment with " + barberName + " is done. Tap to rate.",
+                        data
+                );
+            }
             return;
         }
 
         // If you still use APPOINTMENT_DONE somewhere:
         if ("APPOINTMENT_DONE".equals(type)) {
             String barberName = safe(data.get("barberName"));
-            showNotification(
-                    "Appointment completed",
-                    barberName.isEmpty()
-                            ? "Your appointment is done."
-                            : "Your appointment with " + barberName + " is done.",
-                    data
-            );
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.GINGERBREAD) {
+                showNotification(
+                        "Appointment completed",
+                        barberName.isEmpty()
+                                ? "Your appointment is done."
+                                : "Your appointment with " + barberName + " is done.",
+                        data
+                );
+            }
         }
     }
 

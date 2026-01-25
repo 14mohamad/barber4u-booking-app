@@ -141,30 +141,45 @@ public class LoginActivity extends AppCompatActivity {
     private void saveFcmTokenForUser(@NonNull String uid, @NonNull DoneCallback done) {
         FirebaseMessaging.getInstance().getToken()
                 .addOnSuccessListener(token -> {
-                    if (token == null || token.trim().isEmpty()) {
+                    if (token == null) {
                         done.run();
                         return;
                     }
 
-                    Map<String, Object> data = new HashMap<>();
-                    data.put("fcmToken", token);
+                    token = token.trim();
+                    if (token.isEmpty()) {
+                        done.run();
+                        return;
+                    }
 
-                    // Try update first (fails if doc doesn't exist)
+                    Map<String, Object> tokenDoc = new HashMap<>();
+                    tokenDoc.put("token", token);
+                    tokenDoc.put("updatedAt", com.google.firebase.Timestamp.now());
+                    tokenDoc.put("platform", "android");
+
+                    // Optional: store app version if you want
+                    // tokenDoc.put("appVersion", BuildConfig.VERSION_NAME);
+
+                    // 1) Save token inside subcollection: users/{uid}/fcmTokens/{token}
+                    String finalToken = token;
                     db.collection("users")
                             .document(uid)
-                            .update(data)
-                            .addOnSuccessListener(unused -> done.run())
-                            .addOnFailureListener(err -> {
-                                // Fallback: create/merge if doc doesn't exist
+                            .collection("fcmTokens")
+                            .document(token) // docId = token (important!)
+                            .set(tokenDoc, SetOptions.merge())
+                            .addOnCompleteListener(t1 -> {
+                                // 2) Optional: also store last token on user doc for convenience
+                                Map<String, Object> userPatch = new HashMap<>();
+                                userPatch.put("fcmToken", finalToken);
+                                userPatch.put("fcmTokenUpdatedAt", com.google.firebase.Timestamp.now());
+
                                 db.collection("users")
                                         .document(uid)
-                                        .set(data, SetOptions.merge())
-                                        .addOnCompleteListener(t -> done.run());
+                                        .set(userPatch, SetOptions.merge())
+                                        .addOnCompleteListener(t2 -> done.run());
                             });
                 })
-                .addOnFailureListener(e -> {
-                    // token fetch failed - still allow app to continue
-                    done.run();
-                });
+                .addOnFailureListener(e -> done.run());
     }
+
 }

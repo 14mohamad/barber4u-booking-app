@@ -157,13 +157,20 @@ public class BarberAppointmentsFragment extends Fragment {
                     }
 
                     List<Appointment> list = new ArrayList<>();
+
                     for (DocumentSnapshot doc : snapshot.getDocuments()) {
+                        String status = doc.getString("status");
+
+                        // 🚫 Do not show DONE appointments
+                        if ("DONE".equalsIgnoreCase(status)) {
+                            continue;
+                        }
+
                         String id = doc.getId();
                         String userEmail = doc.getString("userEmail");
                         String userId = doc.getString("userId");
                         String date = doc.getString("date");
                         String time = doc.getString("time");
-                        String status = doc.getString("status");
                         String branchName = doc.getString("branchName");
                         String barberName = doc.getString("barberName");
 
@@ -178,6 +185,7 @@ public class BarberAppointmentsFragment extends Fragment {
                                 barberName
                         ));
                     }
+
 
                     adapter.setItems(list);
                     showEmpty(list.isEmpty());
