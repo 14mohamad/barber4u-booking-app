@@ -131,7 +131,6 @@ public class AppointmentsFragment extends Fragment {
         // ✅ חדש למעלה לפי createdAt
         appointmentsListener = db.collection("appointments")
                 .whereEqualTo("userId", uid)
-                .orderBy("createdAt", Query.Direction.DESCENDING)
                 .addSnapshotListener((snapshot, e) -> {
                     if (!isAdded()) return;
 
@@ -159,11 +158,15 @@ public class AppointmentsFragment extends Fragment {
 
                         String date = safe(doc.getString("date"));
                         if (date.isEmpty() || !isTodayOrFuture(date)) {
-                            continue;
+                            continue; // ✅ hide past/invalid dates
                         }
-                        String time = safe(doc.getString("time"));
-                        String status = safe(doc.getString("status"));
 
+                        String status = safe(doc.getString("status"));
+                        // Optional (if you want):
+                        if (status.equalsIgnoreCase("DONE")) continue;
+                        // if (status.equalsIgnoreCase("CANCELED")) continue;
+
+                        String time = safe(doc.getString("time"));
                         String barberName = safe(doc.getString("barberName"));
                         String branchName = safe(doc.getString("branchName"));
                         String branchId = safe(doc.getString("branchId"));
@@ -189,6 +192,7 @@ public class AppointmentsFragment extends Fragment {
 
                         items.add(item);
                     }
+
 
                     adapter.setItems(items);
                     showEmpty(items.isEmpty());

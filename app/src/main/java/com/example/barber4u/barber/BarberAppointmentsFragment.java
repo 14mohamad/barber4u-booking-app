@@ -27,8 +27,12 @@ import com.google.firebase.firestore.FirebaseFirestore;
 import com.google.firebase.firestore.ListenerRegistration;
 import com.google.firebase.firestore.Query;
 
+import java.text.SimpleDateFormat;
 import java.util.ArrayList;
+import java.util.Calendar;
+import java.util.Date;
 import java.util.List;
+import java.util.Locale;
 
 public class BarberAppointmentsFragment extends Fragment {
 
@@ -130,6 +134,36 @@ public class BarberAppointmentsFragment extends Fragment {
         if (tvEmpty != null) tvEmpty.setVisibility(show ? View.VISIBLE : View.GONE);
         if (recyclerView != null) recyclerView.setVisibility(show ? View.GONE : View.VISIBLE);
     }
+    private boolean isTodayOrFuture(@NonNull String dateStr) {
+        try {
+            SimpleDateFormat sdf = new SimpleDateFormat("dd/MM/yyyy", Locale.getDefault());
+            sdf.setLenient(false);
+
+            Date apptDate = sdf.parse(dateStr);
+            if (apptDate == null) return false;
+
+            Calendar apptCal = Calendar.getInstance();
+            apptCal.setTime(apptDate);
+            apptCal.set(Calendar.HOUR_OF_DAY, 0);
+            apptCal.set(Calendar.MINUTE, 0);
+            apptCal.set(Calendar.SECOND, 0);
+            apptCal.set(Calendar.MILLISECOND, 0);
+
+            Calendar today = Calendar.getInstance();
+            today.set(Calendar.HOUR_OF_DAY, 0);
+            today.set(Calendar.MINUTE, 0);
+            today.set(Calendar.SECOND, 0);
+            today.set(Calendar.MILLISECOND, 0);
+
+            return !apptCal.before(today); // today or future
+        } catch (Exception e) {
+            return false;
+        }
+    }
+    @NonNull
+    private static String safe(@Nullable String s) {
+        return (s == null) ? "" : s.trim();
+    }
 
     private void startListeningAppointments() {
         if (auth.getCurrentUser() == null) {
@@ -149,7 +183,6 @@ public class BarberAppointmentsFragment extends Fragment {
         // ✅ חדש למעלה לפי createdAt
         appointmentsListener = db.collection("appointments")
                 .whereEqualTo("barberId", barberUid)
-                .orderBy("createdAt", Query.Direction.DESCENDING)
                 .addSnapshotListener((snapshot, e) -> {
                     if (!isAdded()) return;
 
@@ -172,14 +205,28 @@ public class BarberAppointmentsFragment extends Fragment {
 
                     List<Appointment> list = new ArrayList<>();
                     for (DocumentSnapshot doc : snapshot.getDocuments()) {
+
+                        String status = safe(doc.getString("status"));
+                        String date   = safe(doc.getString("date"));
+
+                        // 1️⃣ Never show DONE
+                        if (status.equalsIgnoreCase("DONE")) {
+                            continue;
+                        }
+
+                        // 2️⃣ Hide past appointments that are still pending/approved
+                        if ((status.equalsIgnoreCase("PENDING")
+                                || status.equalsIgnoreCase("APPROVED"))
+                                && !isTodayOrFuture(date)) {
+                            continue;
+                        }
+
                         String id = doc.getId();
-                        String userEmail = doc.getString("userEmail");
-                        String userId = doc.getString("userId");
-                        String date = doc.getString("date");
-                        String time = doc.getString("time");
-                        String status = doc.getString("status");
-                        String branchName = doc.getString("branchName");
-                        String barberName = doc.getString("barberName");
+                        String userEmail = safe(doc.getString("userEmail"));
+                        String userId = safe(doc.getString("userId"));
+                        String time = safe(doc.getString("time"));
+                        String branchName = safe(doc.getString("branchName"));
+                        String barberName = safe(doc.getString("barberName"));
 
                         list.add(new Appointment(
                                 id,
@@ -192,6 +239,7 @@ public class BarberAppointmentsFragment extends Fragment {
                                 barberName
                         ));
                     }
+
 
                     adapter.setItems(list);
                     showEmpty(list.isEmpty());
