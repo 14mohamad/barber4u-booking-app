@@ -29,6 +29,7 @@ import com.google.firebase.firestore.Query;
 
 import java.io.IOException;
 import java.util.ArrayList;
+import java.util.Calendar;
 import java.util.Collections;
 import java.util.HashMap;
 import java.util.List;
@@ -36,6 +37,10 @@ import java.util.Locale;
 import java.util.Map;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
+
+import java.text.ParseException;
+import java.text.SimpleDateFormat;
+import java.util.Date;
 
 public class AppointmentsFragment extends Fragment {
 
@@ -153,6 +158,9 @@ public class AppointmentsFragment extends Fragment {
                         String appointmentId = doc.getId();
 
                         String date = safe(doc.getString("date"));
+                        if (date.isEmpty() || !isTodayOrFuture(date)) {
+                            continue;
+                        }
                         String time = safe(doc.getString("time"));
                         String status = safe(doc.getString("status"));
 
@@ -298,6 +306,28 @@ public class AppointmentsFragment extends Fragment {
             this.branchId = branchId;
         }
     }
+    private boolean isTodayOrFuture(@NonNull String dateStr) {
+        try {
+            SimpleDateFormat sdf =
+                    new SimpleDateFormat("dd/MM/yyyy", Locale.getDefault());
+
+            Date appointmentDate = sdf.parse(dateStr);
+            if (appointmentDate == null) return false;
+
+            Calendar today = Calendar.getInstance();
+            today.set(Calendar.HOUR_OF_DAY, 0);
+            today.set(Calendar.MINUTE, 0);
+            today.set(Calendar.SECOND, 0);
+            today.set(Calendar.MILLISECOND, 0);
+
+            return !appointmentDate.before(today.getTime());
+
+        } catch (ParseException e) {
+            return false; // invalid date format → hide
+        }
+    }
+
+
 
     static class CustomerAppointmentsAdapter extends RecyclerView.Adapter<CustomerAppointmentsAdapter.VH> {
 

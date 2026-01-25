@@ -88,7 +88,7 @@ public class BarberAppointmentsFragment extends Fragment {
         adapter = new BarberAppointmentsAdapter(new BarberAppointmentsAdapter.Listener() {
             @Override
             public void onApprove(@NonNull Appointment appt) {
-                updateStatus(appt.getId(), "APPOINTMENT_SCHEDULED");
+                updateStatus(appt.getId(), "APPROVED");
             }
 
             @Override
