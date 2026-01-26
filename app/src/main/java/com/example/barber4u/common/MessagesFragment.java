@@ -13,25 +13,15 @@ import android.widget.Toast;
 import androidx.annotation.NonNull;
 import androidx.annotation.Nullable;
 import androidx.fragment.app.Fragment;
+import androidx.lifecycle.ViewModelProvider;
 import androidx.recyclerview.widget.LinearLayoutManager;
 import androidx.recyclerview.widget.RecyclerView;
 
 import com.example.barber4u.R;
 import com.example.barber4u.adapters.MessagesAdapter;
-import com.example.barber4u.main.RoleMainActivity;
-import com.google.firebase.auth.FirebaseAuth;
-import com.google.firebase.auth.FirebaseUser;
-import com.google.firebase.firestore.DocumentReference;
-import com.google.firebase.firestore.FieldValue;
-import com.google.firebase.firestore.FirebaseFirestore;
-import com.google.firebase.firestore.ListenerRegistration;
-import com.google.firebase.firestore.Query;
-import com.google.firebase.firestore.QuerySnapshot;
-import com.google.firebase.firestore.WriteBatch;
 
 import java.util.ArrayList;
 import java.util.List;
-import java.util.Map;
 
 public class MessagesFragment extends Fragment implements MessagesAdapter.Listener {
 
@@ -39,11 +29,8 @@ public class MessagesFragment extends Fragment implements MessagesAdapter.Listen
     private ProgressBar progressMessages;
     private TextView tvNoMessages;
 
-    private FirebaseAuth auth;
-    private FirebaseFirestore db;
-
     private MessagesAdapter adapter;
-    private ListenerRegistration messagesListener;
+    private MessagesViewModel vm;
 
     public MessagesFragment() {}
 
@@ -61,9 +48,6 @@ public class MessagesFragment extends Fragment implements MessagesAdapter.Listen
     public void onViewCreated(@NonNull View view, @Nullable Bundle savedInstanceState) {
         super.onViewCreated(view, savedInstanceState);
 
-        auth = FirebaseAuth.getInstance();
-        db = FirebaseFirestore.getInstance();
-
         recyclerMessages = view.findViewById(R.id.recyclerMessages);
         progressMessages = view.findViewById(R.id.progressMessages);
         tvNoMessages = view.findViewById(R.id.tvNoMessages);
@@ -72,196 +56,139 @@ public class MessagesFragment extends Fragment implements MessagesAdapter.Listen
         adapter = new MessagesAdapter(this);
         recyclerMessages.setAdapter(adapter);
 
-        setLoading(false);
-        showEmpty(true);
+        vm = new ViewModelProvider(this).get(MessagesViewModel.class);
+
+        vm.loading().observe(getViewLifecycleOwner(), isLoading -> {
+            boolean loading = Boolean.TRUE.equals(isLoading);
+            progressMessages.setVisibility(loading ? View.VISIBLE : View.GONE);
+        });
+
+        vm.messages().observe(getViewLifecycleOwner(), items -> {
+            List<MessageItem> safeItems = (items != null) ? items : new ArrayList<>();
+            adapter.setItems(safeItems);
+
+            boolean empty = safeItems.isEmpty();
+            tvNoMessages.setVisibility(empty ? View.VISIBLE : View.GONE);
+            recyclerMessages.setVisibility(empty ? View.GONE : View.VISIBLE);
+
+            // Optional: quick debug if you're still seeing "RATE_REQUEST" as the whole message
+            // If text == type frequently, it's almost certainly a ViewModel mapping bug.
+            // (Leave this commented unless needed)
+            /*
+            for (MessageItem it : safeItems) {
+                if (it != null && it.type != null && it.text != null
+                        && it.text.trim().equalsIgnoreCase(it.type.trim())) {
+                    Toast.makeText(requireContext(),
+                            "DEBUG: message text equals type (check ViewModel mapping)",
+                            Toast.LENGTH_SHORT).show();
+                    break;
+                }
+            }
+            */
+        });
+
+        vm.error().observe(getViewLifecycleOwner(), err -> {
+            if (!isAdded()) return;
+            if (err != null && !err.trim().isEmpty()) {
+                Toast.makeText(requireContext(),
+                        "Failed to load messages: " + err,
+                        Toast.LENGTH_LONG).show();
+            }
+        });
     }
 
     @Override
     public void onStart() {
         super.onStart();
-        startListening();
+        vm.start();
     }
 
     @Override
     public void onStop() {
         super.onStop();
-        if (messagesListener != null) {
-            messagesListener.remove();
-            messagesListener = null;
-        }
+        vm.stop();
     }
-
-    private void startListening() {
-        FirebaseUser user = auth.getCurrentUser();
-        if (user == null) {
-            adapter.setItems(new ArrayList<>());
-            showEmpty(true);
-            return;
-        }
-
-        setLoading(true);
-        showEmpty(false);
-
-        Query q = db.collection("users")
-                .document(user.getUid())
-                .collection("messages")
-                .orderBy("createdAt", Query.Direction.DESCENDING);
-
-        messagesListener = q.addSnapshotListener((snapshot, e) -> {
-            if (!isAdded()) return;
-
-            setLoading(false);
-
-            if (e != null) {
-                Toast.makeText(requireContext(),
-                        "Failed to load messages: " + e.getMessage(),
-                        Toast.LENGTH_LONG).show();
-                adapter.setItems(new ArrayList<>());
-                showEmpty(true);
-                return;
-            }
-
-            if (snapshot == null || snapshot.isEmpty()) {
-                adapter.setItems(new ArrayList<>());
-                showEmpty(true);
-                return;
-            }
-
-            List<MessageItem> items = new ArrayList<>();
-            snapshot.getDocuments().forEach(doc -> {
-                String text = doc.getString("text");
-                String appointmentId = doc.getString("appointmentId");
-                String barberId = doc.getString("barberId");
-                String barberName = doc.getString("barberName");
-                String type = doc.getString("type");
-                Boolean seen = doc.getBoolean("seen");
-
-                items.add(new MessageItem(
-                        doc.getId(),
-                        text == null ? "" : text,
-                        appointmentId == null ? "" : appointmentId,
-                        barberId == null ? "" : barberId,
-                        barberName == null ? "" : barberName,
-                        type == null ? "" : type,
-                        seen != null && seen
-                ));
-            });
-
-            adapter.setItems(items);
-            showEmpty(items.isEmpty());
-
-            // ✅ mark all unseen as seen when user opens Messages screen
-            markAllAsSeen(snapshot);
-        });
-    }
-
-    private void markAllAsSeen(@NonNull QuerySnapshot snapshot) {
-        FirebaseUser user = auth.getCurrentUser();
-        if (user == null) return;
-
-        boolean hasUnseen = snapshot.getDocuments().stream()
-                .anyMatch(d -> {
-                    Boolean s = d.getBoolean("seen");
-                    return s == null || !s;
-                });
-
-        if (!hasUnseen) return;
-
-        WriteBatch batch = db.batch();
-        snapshot.getDocuments().forEach(doc -> {
-            Boolean s = doc.getBoolean("seen");
-            if (s == null || !s) {
-                batch.update(doc.getReference(), Map.of(
-                        "seen", true,
-                        "seenAt", FieldValue.serverTimestamp()
-                ));
-            }
-        });
-        batch.commit();
-    }
-
-    private void setLoading(boolean isLoading) {
-        progressMessages.setVisibility(isLoading ? View.VISIBLE : View.GONE);
-    }
-
-    private void showEmpty(boolean show) {
-        tvNoMessages.setVisibility(show ? View.VISIBLE : View.GONE);
-        recyclerMessages.setVisibility(show ? View.GONE : View.VISIBLE);
-    }
-
-    // --------------------------
-    // Adapter callbacks
-    // --------------------------
 
     @Override
     public void onDismiss(@NonNull MessageItem item) {
-        FirebaseUser user = auth.getCurrentUser();
-        if (user == null) return;
-
-        db.collection("users")
-                .document(user.getUid())
-                .collection("messages")
-                .document(item.id)
-                .delete();
+        vm.dismiss(item);
     }
 
     @Override
     public void onPrimary(@NonNull MessageItem item) {
-        if ("RATE_REQUEST".equals(item.type)) {
+        if (!isAdded()) return;
+
+        String type = normalizeType(item.type);
+
+        if ("RATE_REQUEST".equals(type)) {
+            // Must have appointmentId + barberId to actually rate properly
+            if (isBlank(item.appointmentId) || isBlank(item.barberId)) {
+                Toast.makeText(requireContext(),
+                        "Rating message missing appointment/barber info.",
+                        Toast.LENGTH_LONG).show();
+                return;
+            }
             showRatingDialog(item);
             return;
         }
 
-        // Appointment messages -> go to appointments tab
-        if (getActivity() instanceof RoleMainActivity) {
-            ((RoleMainActivity) getActivity()).navigateToAppointmentsTab();
-        }
+        // Fallback so it never feels "broken"
+        Toast.makeText(requireContext(),
+                "Open: " + (type.isEmpty() ? "UNKNOWN" : type),
+                Toast.LENGTH_SHORT).show();
     }
 
     private void showRatingDialog(@NonNull MessageItem msg) {
-        View view = LayoutInflater.from(requireContext())
+        View dialogView = LayoutInflater.from(requireContext())
                 .inflate(R.layout.dialog_rating, null);
 
-        RatingBar ratingBar = view.findViewById(R.id.ratingBar);
+        RatingBar ratingBar = dialogView.findViewById(R.id.ratingBar);
+        ratingBar.setNumStars(5);
+        ratingBar.setStepSize(1f);
+
+        String barber = (msg.barberName == null || msg.barberName.trim().isEmpty())
+                ? "your barber"
+                : msg.barberName.trim();
 
         new AlertDialog.Builder(requireContext())
-                .setTitle("Rate " + msg.barberName)
-                .setView(view)
+                .setTitle("Rate " + barber)
+                .setView(dialogView)
                 .setPositiveButton("Submit", (d, w) -> {
                     int rating = (int) ratingBar.getRating();
-                    if (rating > 0) {
-                        submitRating(msg, rating);
+                    if (rating < 1) {
+                        Toast.makeText(requireContext(),
+                                "Please select 1–5 stars",
+                                Toast.LENGTH_SHORT).show();
+                        return;
                     }
+
+                    vm.submitRating(
+                            msg,
+                            rating,
+                            () -> {
+                                if (!isAdded()) return;
+                                Toast.makeText(requireContext(),
+                                        "Thanks for your rating!",
+                                        Toast.LENGTH_SHORT).show();
+                            },
+                            (err) -> {
+                                if (!isAdded()) return;
+                                Toast.makeText(requireContext(),
+                                        "Failed to submit rating: " + err,
+                                        Toast.LENGTH_LONG).show();
+                            }
+                    );
                 })
                 .setNegativeButton("Cancel", null)
                 .show();
     }
 
-    private void submitRating(@NonNull MessageItem msg, int rating) {
-        WriteBatch batch = db.batch();
+    private static String normalizeType(@Nullable String type) {
+        if (type == null) return "";
+        return type.trim().toUpperCase();
+    }
 
-        DocumentReference apptRef = db.collection("appointments").document(msg.appointmentId);
-        batch.update(apptRef, Map.of(
-                "rating", rating,
-                "ratedAt", FieldValue.serverTimestamp()
-        ));
-
-        DocumentReference msgRef = db.collection("users")
-                .document(FirebaseAuth.getInstance().getUid())
-                .collection("messages")
-                .document(msg.id);
-        batch.delete(msgRef);
-
-        batch.commit()
-                .addOnSuccessListener(unused -> {
-                    if (!isAdded()) return;
-                    Toast.makeText(requireContext(), "Thanks for your rating!", Toast.LENGTH_SHORT).show();
-                })
-                .addOnFailureListener(e -> {
-                    if (!isAdded()) return;
-                    Toast.makeText(requireContext(),
-                            "Failed to submit rating: " + e.getMessage(),
-                            Toast.LENGTH_LONG).show();
-                });
+    private static boolean isBlank(@Nullable String s) {
+        return s == null || s.trim().isEmpty();
     }
 }
