@@ -40,5 +40,10 @@ public class Barber extends User {
         this.active = active;
     }
 
+    @Override
+    public String toString() {
+        return (name != null && !name.trim().isEmpty()) ? name : "Barber";
+    }
+
 
 }
