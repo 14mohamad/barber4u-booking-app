@@ -3,12 +3,9 @@ plugins {
     id "com.google.gms.google-services"
 }
 
-
 android {
-    namespace 'com.example.barber4u'
-    compileSdk {
-        version = release(36)
-    }
+    namespace "com.example.barber4u"
+    compileSdk 36
 
     defaultConfig {
         applicationId "com.example.barber4u"
@@ -17,15 +14,20 @@ android {
         versionCode 1
         versionName "1.0"
 
+        // For Part C (androidTest / Espresso)
         testInstrumentationRunner "androidx.test.runner.AndroidJUnitRunner"
     }
 
     buildTypes {
         release {
             minifyEnabled false
-            proguardFiles getDefaultProguardFile('proguard-android-optimize.txt'), 'proguard-rules.pro'
+            proguardFiles(
+                    getDefaultProguardFile("proguard-android-optimize.txt"),
+                    "proguard-rules.pro"
+            )
         }
     }
+
     compileOptions {
         sourceCompatibility JavaVersion.VERSION_11
         targetCompatibility JavaVersion.VERSION_11
@@ -33,26 +35,46 @@ android {
 }
 
 dependencies {
+    // -----------------------------
+    // App
+    // -----------------------------
     implementation libs.appcompat
     implementation libs.material
     implementation libs.activity
     implementation libs.constraintlayout
-    testImplementation libs.junit
-    androidTestImplementation libs.ext.junit
-    androidTestImplementation libs.espresso.core
 
-    // 🔥 Firebase
+    // Firebase
     implementation platform("com.google.firebase:firebase-bom:34.7.0")
+    implementation "com.google.firebase:firebase-auth"
+    implementation "com.google.firebase:firebase-firestore"
+    implementation "com.google.firebase:firebase-messaging"
 
-    implementation 'com.google.firebase:firebase-auth'
-    implementation 'com.google.firebase:firebase-firestore'
-
-    // 🖼️ Glide (טעינת תמונות מ-URL)
-    implementation 'com.github.bumptech.glide:glide:4.16.0'
-    annotationProcessor 'com.github.bumptech.glide:compiler:4.16.0'
-
+    // Maps + Location
     implementation "com.google.android.gms:play-services-maps:18.2.0"
     implementation "com.google.android.gms:play-services-location:21.3.0"
 
-    implementation "com.google.firebase:firebase-messaging"
+    // Glide
+    implementation "com.github.bumptech.glide:glide:4.16.0"
+    annotationProcessor "com.github.bumptech.glide:compiler:4.16.0"
+
+    // -----------------------------
+    // Part B: JVM Unit tests
+    // -----------------------------
+    testImplementation "junit:junit:4.13.2"
+    testImplementation "org.mockito:mockito-core:5.7.0"
+
+    // -----------------------------
+    // Part C: Android Instrumentation/UI tests (aligned set)
+    // -----------------------------
+    androidTestImplementation "androidx.test:core:1.5.0"
+    androidTestImplementation "androidx.test:runner:1.5.2"
+    androidTestImplementation "androidx.test:rules:1.5.0"
+    androidTestImplementation "androidx.test.ext:junit:1.1.5"
+
+    androidTestImplementation "androidx.test.espresso:espresso-core:3.5.1"
+    androidTestImplementation "androidx.test.espresso:espresso-intents:3.5.1"
+    androidTestImplementation "androidx.test.espresso:espresso-contrib:3.5.1"
+
+    // FragmentScenario (debug only)
+    debugImplementation "androidx.fragment:fragment-testing:1.6.2"
 }
