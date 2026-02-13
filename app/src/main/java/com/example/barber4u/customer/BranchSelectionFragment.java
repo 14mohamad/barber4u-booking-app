@@ -3,6 +3,7 @@ package com.example.barber4u.customer;
 import android.Manifest;
 import android.content.pm.PackageManager;
 import android.os.Bundle;
+import android.util.Log;
 import android.view.LayoutInflater;
 import android.view.View;
 import android.view.ViewGroup;
@@ -23,16 +24,20 @@ import com.google.android.gms.maps.GoogleMap;
 import com.google.android.gms.maps.OnMapReadyCallback;
 import com.google.android.gms.maps.SupportMapFragment;
 import com.google.android.gms.maps.model.LatLng;
+import com.google.android.gms.maps.model.LatLngBounds;
 import com.google.android.gms.maps.model.Marker;
 import com.google.android.gms.maps.model.MarkerOptions;
 import com.google.android.material.button.MaterialButton;
 import com.google.firebase.firestore.FirebaseFirestore;
+import com.google.firebase.firestore.GeoPoint;
 import com.google.firebase.firestore.QueryDocumentSnapshot;
 
 import java.util.HashMap;
 import java.util.Map;
 
 public class BranchSelectionFragment extends Fragment implements OnMapReadyCallback {
+
+    private static final String TAG = "BranchSelection";
 
     private GoogleMap map;
     private final FirebaseFirestore db = FirebaseFirestore.getInstance();
@@ -67,7 +72,6 @@ public class BranchSelectionFragment extends Fragment implements OnMapReadyCallb
         btnSelectBranch.setEnabled(false);
         btnSelectBranch.setOnClickListener(v -> returnSelectedBranch());
 
-        // Permission launcher (must be created before requesting)
         locationPermissionLauncher = registerForActivityResult(
                 new ActivityResultContracts.RequestMultiplePermissions(),
                 result -> {
@@ -82,7 +86,6 @@ public class BranchSelectionFragment extends Fragment implements OnMapReadyCallb
                 }
         );
 
-        // Attach SupportMapFragment into container
         SupportMapFragment mapFragment = SupportMapFragment.newInstance();
         getChildFragmentManager()
                 .beginTransaction()
@@ -96,10 +99,8 @@ public class BranchSelectionFragment extends Fragment implements OnMapReadyCallb
     public void onMapReady(@NonNull GoogleMap googleMap) {
         map = googleMap;
 
-        // Enable location (safe)
         requestLocationPermissionIfNeeded();
 
-        // Marker selection
         map.setOnMarkerClickListener(marker -> {
             selectedBranch = markerToBranch.get(marker.getId());
             if (selectedBranch != null) {
@@ -138,11 +139,9 @@ public class BranchSelectionFragment extends Fragment implements OnMapReadyCallb
         if (!hasLocationPermission()) return;
 
         try {
-            map.setMyLocationEnabled(true); // blue dot
+            map.setMyLocationEnabled(true);
             map.getUiSettings().setMyLocationButtonEnabled(true);
-        } catch (SecurityException ignored) {
-            // permission might be revoked between check and call
-        }
+        } catch (SecurityException ignored) {}
     }
 
     private void loadBranches() {
@@ -152,36 +151,67 @@ public class BranchSelectionFragment extends Fragment implements OnMapReadyCallb
                 .addOnSuccessListener(snap -> {
                     markerToBranch.clear();
 
-                    // IMPORTANT: don't call map.clear() because it removes the blue-dot layer too.
-                    // Instead, just remove markers by tracking them if needed.
-                    // Easiest approach: clear then re-enable location.
                     map.clear();
                     enableMyLocationIfPermitted();
 
-                    LatLng first = null;
+                    LatLngBounds.Builder boundsBuilder = new LatLngBounds.Builder();
+                    int markerCount = 0;
+
+                    Log.d(TAG, "branches fetched: " + snap.size());
 
                     for (QueryDocumentSnapshot doc : snap) {
                         Branch b = doc.toObject(Branch.class);
                         b.setId(doc.getId());
 
-                        // Skip bad coordinates
-                        double lat = b.getLat();
-                        double lng = b.getLng();
-                        if (lat == 0.0 && lng == 0.0) continue;
+                        // ✅ Preferred: GeoPoint field named "location"
+                        GeoPoint gp = doc.getGeoPoint("location");
+                        double lat;
+                        double lng;
+
+                        if (gp != null) {
+                            lat = gp.getLatitude();
+                            lng = gp.getLongitude();
+                        } else {
+                            // Fallback if some docs still store lat/lng as doubles
+                            lat = b.getLat();
+                            lng = b.getLng();
+                        }
+
+                        // Skip invalid coords
+                        if (lat == 0.0 && lng == 0.0) {
+                            Log.w(TAG, "Skipping branch (missing coords): " + doc.getId()
+                                    + " name=" + b.getName()
+                                    + " lat=" + lat + " lng=" + lng);
+                            continue;
+                        }
 
                         LatLng pos = new LatLng(lat, lng);
-                        if (first == null) first = pos;
 
                         Marker m = map.addMarker(new MarkerOptions()
                                 .position(pos)
                                 .title(b.getName())
                         );
 
-                        if (m != null) markerToBranch.put(m.getId(), b);
+                        if (m != null) {
+                            markerToBranch.put(m.getId(), b);
+                            boundsBuilder.include(pos);
+                            markerCount++;
+                        }
                     }
 
-                    if (first != null) {
-                        map.moveCamera(CameraUpdateFactory.newLatLngZoom(first, 12f));
+                    if (markerCount > 0) {
+                        // ✅ Show ALL branches on screen
+                        try {
+                            map.animateCamera(CameraUpdateFactory.newLatLngBounds(boundsBuilder.build(), 120));
+                        } catch (Exception e) {
+                            // If only one marker, bounds can sometimes throw on some devices
+                            // fallback to a simple zoom
+                            LatLng first = markerToBranch.isEmpty()
+                                    ? new LatLng(32.0853, 34.7818) // default (Israel-ish)
+                                    : map.getCameraPosition().target;
+
+                            map.moveCamera(CameraUpdateFactory.newLatLngZoom(first, 12f));
+                        }
                     } else {
                         Toast.makeText(requireContext(), "No valid branch locations found", Toast.LENGTH_SHORT).show();
                     }
