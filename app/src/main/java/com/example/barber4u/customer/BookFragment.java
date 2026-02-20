@@ -84,7 +84,6 @@ public class BookFragment extends Fragment {
         etDate.setKeyListener(null);
 
         setupBarberAdapter();
-        setupGallery();
         setupPickers();
         setupButtons();
         setupBranchResultListener();

@@ -27,6 +27,7 @@ public class BookViewModel extends ViewModel {
         recomputeCanBook();
     }
 
+
     // --- helpers ---
     private BookUiState s() { return _state.getValue() == null ? new BookUiState() : _state.getValue(); }
     private void set(BookUiState newState) { _state.setValue(newState); }
