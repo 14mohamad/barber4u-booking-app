@@ -1,11 +1,16 @@
 # 💈 Barber4U – Smart Barbershop Booking System
 
+![GitHub repo size](https://img.shields.io/github/repo-size/14mohamad/barber4u-booking-app)
+![GitHub last commit](https://img.shields.io/github/last-commit/14mohamad/barber4u-booking-app)
+
 ## 📌 Overview
-Barber4U is a full-stack Android application developed as part of a Software Engineering course.
+Barber4U is an Android application developed as part of a Software Engineering course.
 
 The system provides a complete digital solution for managing barbershop chains, replacing traditional phone-based booking with a modern, efficient, and user-friendly mobile application.
 
 The application supports multiple user roles, real-time updates, and integrates modern technologies such as Firebase and Google Maps.
+
+**Technologies:** Java, Android, Firebase (Firestore, Authentication, FCM), Google Maps API
 
 ---
 
@@ -16,7 +21,7 @@ Many barbershops still rely on phone calls or walk-ins to manage appointments, w
 - Inefficient management
 - Poor customer experience
 
-Barber4U solves this by enabling customers to easily book appointments and allowing barbers and managers to efficiently manage schedules and operations.  [oai_citation:0‡מסמך ייזום (PID).pdf](sediment://file_0000000027f471f4816125cd9253878c)
+Barber4U solves this by enabling customers to easily book appointments and allowing barbers and managers to efficiently manage schedules and operations.
 
 ---
 
@@ -102,13 +107,9 @@ After approval:
 - Appointment is saved in database
 - Both sides receive updates
 
-This workflow is described in the system use cases and testing scenarios.  [oai_citation:1‡ מסמך דרישות.pdf](sediment://file_00000000728c7243a124fbc02e7bae26)
-
 ---
 
 ## 🧪 Testing
-
-The project includes multiple testing levels:
 
 ### ✅ Functional Testing
 - Booking appointments
@@ -125,11 +126,6 @@ The project includes multiple testing levels:
 - Date/time selection
 - Button state validation
 
-Example scenarios include:
-- Booking appointment
-- Barber approving appointment
-- Customer rating barber  [oai_citation:2‡שלב הבדיקות.pdf](sediment://file_00000000f56072438213f310bbbfb13d)
-
 ---
 
 ## 📊 System Design
@@ -140,8 +136,6 @@ The system includes multiple UML diagrams:
 - Sequence Diagram (booking process)
 - Activity Diagram
 - ERD (database structure)
-
-These diagrams define the relationships between users, appointments, and system components.  [oai_citation:3‡ מסמך ניתוח.pdf](sediment://file_0000000084c471f487dc48a7b91ad0cb)
 
 ---
 
@@ -155,6 +149,12 @@ These diagrams define the relationships between users, appointments, and system 
 - MVVM Architecture
 - RecyclerView & Fragments
 - Gradle
+
+---
+
+## 📸 Screenshots
+
+*(Add your app screenshots here)*
 
 ---
 
@@ -191,15 +191,14 @@ These diagrams define the relationships between users, appointments, and system 
 
 ## 👨‍💻 Team
 
-- Mohamad Mousa – Core system, booking system, Features for barber & customer modules
+- Mohamad Mousa – Core system, booking system, barber & customer modules
 - Eitan Beriy – Maps API, notifications, messaging system
-- Yuval Frankel –  Firebase integration [oai_citation:4‡Barber4U.pptx](sediment://file_00000000c1a4720a84ceb90c782f1f34)
+- Yuval Frankel – Firebase integration
 
 ---
 
 ## 📦 Repository Structure
 
-```
 app/
 ├── activities/
 ├── fragments/
@@ -208,14 +207,13 @@ app/
 ├── repository/
 ├── models/
 └── data/
-```
 
 ---
 
 ## 💡 Highlights
 
 - Real-world problem solving
-- Full mobile application (not just logic)
+- Complete Android application with real-world functionality and user interaction
 - Clean architecture (MVVM)
 - Firebase integration
 - Multi-role system
